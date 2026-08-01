@@ -1,0 +1,2242 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AGDB Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<style type="text/tailwindcss">
+@theme {
+  --color-primary-blue: #0a84ff;
+  --color-light-blue: #5e5ce6;
+  --font-dm-sans: "DM Sans", sans-serif;
+  --font-geist: "Geist", sans-serif;
+  --radius-full: 9999px;
+}
+</style>
+<style>
+  html { font-family: "DM Sans", sans-serif; background-color: #000; color: #fff; }
+  body { margin: 0; background-color: transparent; }
+  .font-geist { font-family: "Geist", sans-serif; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 9999px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+
+  .glass-panel {
+    background: linear-gradient(145deg, rgba(30,30,30,0.5) 0%, rgba(10,10,10,0.5) 100%);
+    backdrop-filter: blur(30px);
+    -webkit-backdrop-filter: blur(30px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+    border-radius: 24px;
+  }
+  .glass {
+    background: rgba(20, 20, 20, 0.4);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 16px;
+  }
+  .glass-input {
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #fff;
+  }
+  .glass-input:focus {
+    border-color: rgba(10, 132, 255, 0.8);
+    box-shadow: 0 0 0 4px rgba(10, 132, 255, 0.2);
+    outline: none;
+  }
+  .glass-button {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #fff;
+  }
+  .glass-button:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .hero-gradient { background: transparent; }
+  .brand-gradient { background: linear-gradient(135deg, #0a84ff 0%, #5e5ce6 100%); }
+  .text-gradient { background: linear-gradient(135deg, #0a84ff 0%, #5e5ce6 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .fade-in { animation: fadeIn 0.35s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .spin { animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .toast-in { animation: toastIn 0.3s cubic-bezier(0.16,1,0.3,1); }
+  @keyframes toastIn { from { opacity: 0; transform: translateX(120%); } to { opacity: 1; transform: translateX(0); } }
+  .pulse-dot { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; box-shadow: 0 0 10px currentColor; } 50% { opacity: 0.35; box-shadow: 0 0 2px currentColor; } }
+  pre, code, .mono { font-family: "Geist", ui-monospace, SFMono-Regular, Menlo, monospace; }
+  details > summary { list-style: none; cursor: pointer; }
+  details > summary::-webkit-details-marker { display: none; }
+</style>
+</head>
+<body class="text-white transition-colors duration-300">
+
+<div class="fixed inset-0 z-[-1] bg-black overflow-hidden pointer-events-none">
+  <div class="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-primary-blue/20 blur-[140px] rounded-full mix-blend-screen"></div>
+  <div class="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-purple-600/20 blur-[140px] rounded-full mix-blend-screen"></div>
+  <div class="absolute top-[40%] left-[40%] w-[40%] h-[40%] bg-emerald-600/10 blur-[120px] rounded-full mix-blend-screen"></div>
+</div>
+
+<div id="app"></div>
+
+<div id="toast-container" class="fixed top-5 right-5 z-[100] flex flex-col gap-3 w-80 max-w-[90vw]"></div>
+<div id="modal-root"></div>
+
+<script>
+"use strict";
+
+const ICONS = {
+  logo: '<svg viewBox="0 0 24 24" fill="none" class="w-6 h-6"><path d="M12 2L3 7v10l9 5 9-5V7l-9-5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 7l9 5 9-5M12 12v10" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+  dashboard: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><path d="M4 13h6V4H4v9zm0 7h6v-5H4v5zm10 0h6V11h-6v9zm0-16v5h6V4h-6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+  key: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><path d="M15 7a4 4 0 11-3.9 5H8v3H5v3H2v-3l6.1-6.1A4 4 0 0115 7z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="16.5" cy="7.5" r="1" fill="currentColor"/></svg>',
+  building: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><path d="M3 21h18M5 21V5l7-2 7 2v16M9 9h.01M9 13h.01M9 17h.01M14 9h.01M14 13h.01M14 17h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  server: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><rect x="3" y="4" width="18" height="6" rx="2" stroke="currentColor" stroke-width="1.6"/><rect x="3" y="14" width="18" height="6" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M7 7h.01M7 17h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+  database: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><ellipse cx="12" cy="5" rx="8" ry="3" stroke="currentColor" stroke-width="1.6"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" stroke="currentColor" stroke-width="1.6"/></svg>',
+  chart: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><path d="M3 3v18h18M7 14l3-3 3 3 5-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  search: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.6"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  code: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><path d="M8 6l-6 6 6 6M16 6l6 6-6 6M13 4l-2 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  book: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><path d="M4 5a2 2 0 012-2h12v18H6a2 2 0 01-2-2V5zM18 3v18" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+  terminal: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M7 9l3 3-3 3M13 15h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  shield: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+  bell: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6zM10 20a2 2 0 004 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  card: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><rect x="2" y="5" width="20" height="14" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M2 10h20M6 15h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  user: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.6"/><path d="M4 21c0-4 3.5-6 8-6s8 2 8 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  gear: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-2.7.6 1.6 1.6 0 01-3.2 0 1.6 1.6 0 00-2.7-.6l-.1.1a2 2 0 11-2.8-2.8l.1-.1A1.6 1.6 0 004.6 15a1.6 1.6 0 00-1.5-1H3a2 2 0 010-4h.1A1.6 1.6 0 004.6 9a1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H9a1.6 1.6 0 001-1.5V3a2 2 0 014 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V9a1.6 1.6 0 001.5 1h.1a2 2 0 010 4h-.1a1.6 1.6 0 00-1.5 1z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>',
+  life: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3.5" stroke="currentColor" stroke-width="1.6"/><path d="M4.9 4.9l4 4M15.1 15.1l4 4M19.1 4.9l-4 4M8.9 15.1l-4 4" stroke="currentColor" stroke-width="1.6"/></svg>',
+  heart: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><path d="M3 12h4l2 5 4-12 2 7h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  admin: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><path d="M12 3l7 4v5c0 4-3 7-7 8-4-1-7-4-7-8V7l7-4z" stroke="currentColor" stroke-width="1.6"/><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  swap: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><path d="M7 7h13l-3-3M17 17H4l3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" fill="none" class="w-4 h-4"><rect x="9" y="9" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M5 15H4a1 1 0 01-1-1V4a1 1 0 011-1h10a1 1 0 011 1v1" stroke="currentColor" stroke-width="1.6"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" fill="none" class="w-4 h-4"><path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  refresh: '<svg viewBox="0 0 24 24" fill="none" class="w-4 h-4"><path d="M21 12a9 9 0 11-2.6-6.4M21 4v5h-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  play: '<svg viewBox="0 0 24 24" fill="none" class="w-4 h-4"><path d="M6 4l14 8-14 8V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+  stop: '<svg viewBox="0 0 24 24" fill="none" class="w-4 h-4"><rect x="5" y="5" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.6"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" class="w-4 h-4"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" class="w-4 h-4"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  x: '<svg viewBox="0 0 24 24" fill="none" class="w-4 h-4"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  warn: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><path d="M12 3l9 16H3l9-16zM12 9v5M12 17h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  info: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 11v5M12 8h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  menu: '<svg viewBox="0 0 24 24" fill="none" class="w-6 h-6"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  sun: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.6"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  moon: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 109.8 9.8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+  download: '<svg viewBox="0 0 24 24" fill="none" class="w-4 h-4"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  upload: '<svg viewBox="0 0 24 24" fill="none" class="w-4 h-4"><path d="M12 17V5m0 0l-4 4m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  logout: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  bookmark: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><path d="M6 3h12a1 1 0 011 1v17l-7-4-7 4V4a1 1 0 011-1z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+  template: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3 9h18M9 21V9" stroke="currentColor" stroke-width="1.6"/></svg>',
+  doc: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9l-6-6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 3v6h6M8 13h8M8 17h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  rocket: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><path d="M5 14c-2 1-3 5-3 5s4-1 5-3m4-9a14 14 0 00-6 6l3 3a14 14 0 006-6c2-3 2-7 2-7s-4 0-7 2zM15 9h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  flag: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><path d="M5 21V4m0 0h11l-2 4 2 4H5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  bug: '<svg viewBox="0 0 24 24" fill="none" class="w-5 h-5"><rect x="8" y="8" width="8" height="11" rx="4" stroke="currentColor" stroke-width="1.6"/><path d="M9 8a3 3 0 016 0M4 11h2M18 11h2M3 16h3M18 16h3M5 7l2 2M19 7l-2 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>'
+};
+
+const I18N = {
+  hu: {
+    nav_dashboard: "Vezérlőpult", nav_apikeys: "API kulcsok", nav_tenant: "Tenant kezelés", nav_sandbox: "Sandbox",
+    nav_storage: "Adattárhely", nav_query: "Query szerkesztő", nav_history: "Query előzmények", nav_saved: "Mentett queryk",
+    nav_templates: "Query sablonok", nav_search: "Teljes szöveges kereső", nav_data: "Import / Export", nav_stats: "Statisztikák",
+    nav_analytics: "Analitika", nav_audit: "Naplók", nav_webhooks: "Webhookok", nav_notifications: "Értesítések",
+    nav_billing: "Számlázás", nav_docs: "Dokumentáció", nav_apiref: "API referencia", nav_swagger: "OpenAPI nézet",
+    nav_samples: "Kódminták", nav_errors: "Hibakódok", nav_console: "Fejlesztői konzol", nav_jsontools: "JSON eszközök",
+    nav_tester: "Végpont tesztelő", nav_status: "Rendszerállapot", nav_support: "Támogatás", nav_legal: "Jogi dokumentumok",
+    nav_profile: "Profil", nav_settings: "Beállítások", nav_admin: "Admin", nav_changelog: "Changelog", nav_feedback: "Visszajelzés",
+    group_overview: "Áttekintés", group_account: "Fiók", group_infra: "Infrastruktúra", group_data: "Adatok",
+    group_dev: "Fejlesztés", group_docs: "Dokumentáció", group_ops: "Megfigyelhetőség", group_other: "Egyéb",
+    logout: "Kijelentkezés", login: "Bejelentkezés", register: "Regisztráció", search_placeholder: "Keresés a konzolban...",
+    welcome: "Üdvözöljük az AGDB-ben", copy: "Másolás", copied: "Másolva!", run: "Futtatás", save: "Mentés",
+    delete: "Törlés", cancel: "Mégse", confirm: "Megerősítés", create: "Létrehozás", refresh: "Frissítés"
+  },
+  en: {
+    nav_dashboard: "Dashboard", nav_apikeys: "API Keys", nav_tenant: "Tenant Management", nav_sandbox: "Sandbox",
+    nav_storage: "Storage", nav_query: "Query Editor", nav_history: "Query History", nav_saved: "Saved Queries",
+    nav_templates: "Query Templates", nav_search: "Full-text Search", nav_data: "Import / Export", nav_stats: "Statistics",
+    nav_analytics: "Analytics", nav_audit: "Logs", nav_webhooks: "Webhooks", nav_notifications: "Notifications",
+    nav_billing: "Billing", nav_docs: "Documentation", nav_apiref: "API Reference", nav_swagger: "OpenAPI View",
+    nav_samples: "Code Samples", nav_errors: "Error Codes", nav_console: "Developer Console", nav_jsontools: "JSON Tools",
+    nav_tester: "Endpoint Tester", nav_status: "System Status", nav_support: "Support", nav_legal: "Legal",
+    nav_profile: "Profile", nav_settings: "Settings", nav_admin: "Admin", nav_changelog: "Changelog", nav_feedback: "Feedback",
+    group_overview: "Overview", group_account: "Account", group_infra: "Infrastructure", group_data: "Data",
+    group_dev: "Development", group_docs: "Documentation", group_ops: "Observability", group_other: "Other",
+    logout: "Log out", login: "Log in", register: "Sign up", search_placeholder: "Search the console...",
+    welcome: "Welcome to AGDB", copy: "Copy", copied: "Copied!", run: "Run", save: "Save",
+    delete: "Delete", cancel: "Cancel", confirm: "Confirm", create: "Create", refresh: "Refresh"
+  }
+};
+
+const API_BASE = "/v1";
+
+function apiCall(method, path, body) {
+  const sess = State.session;
+  const headers = { "Content-Type": "application/json" };
+  if (sess && sess.apiKey) headers["Authorization"] = "Bearer " + sess.apiKey;
+  const opts = { method: method, headers: headers };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  return fetch(API_BASE + path, opts).then(r => {
+    if (!r.ok && r.status === 401) {
+      State.session = null;
+      location.hash = "#/login";
+      return {};
+    }
+    return r.json().catch(() => ({}));
+  });
+}
+
+const Store = {
+  read(key, def) {
+    try { const v = localStorage.getItem(key); return v === null ? def : JSON.parse(v); }
+    catch (e) { return def; }
+  },
+  write(key, val) { localStorage.setItem(key, JSON.stringify(val)); },
+  remove(key) { localStorage.removeItem(key); }
+};
+
+const State = {
+  get account() { return Store.read("agdb_account", null); },
+  set account(v) { Store.write("agdb_account", v); },
+  get session() { return Store.read("agdb_session", null); },
+  set session(v) { Store.write("agdb_session", v); },
+  get apikeys() { return Store.read("agdb_apikeys", []); },
+  set apikeys(v) { Store.write("agdb_apikeys", v); },
+  get tenant() { return Store.read("agdb_tenant", null); },
+  set tenant(v) { Store.write("agdb_tenant", v); },
+  get sandbox() { return Store.read("agdb_sandbox", { status: "stopped", uptime: 0, restarts: 0 }); },
+  set sandbox(v) { Store.write("agdb_sandbox", v); },
+  get db() { return Store.read("agdb_db", { records: [] }); },
+  set db(v) { Store.write("agdb_db", v); },
+  get history() { return Store.read("agdb_history", []); },
+  set history(v) { Store.write("agdb_history", v); },
+  get saved() { return Store.read("agdb_saved", []); },
+  set saved(v) { Store.write("agdb_saved", v); },
+  get logs() { return Store.read("agdb_logs", []); },
+  set logs(v) { Store.write("agdb_logs", v); },
+  get webhooks() { return Store.read("agdb_webhooks", []); },
+  set webhooks(v) { Store.write("agdb_webhooks", v); },
+  get notifications() { return Store.read("agdb_notifications", []); },
+  set notifications(v) { Store.write("agdb_notifications", v); },
+  get settings() { return Store.read("agdb_settings", { theme: "dark", lang: "hu", notifEmail: true, notifWebhook: false, onboarded: false }); },
+  set settings(v) { Store.write("agdb_settings", v); },
+  get billing() { return Store.read("agdb_billing", { plan: "free", since: Date.now(), autoRenew: true }); },
+  set billing(v) { Store.write("agdb_billing", v); },
+  get metrics() { return Store.read("agdb_metrics", null); },
+  set metrics(v) { Store.write("agdb_metrics", v); }
+};
+
+function t(key) {
+  const lang = State.settings.lang || "hu";
+  return (I18N[lang] && I18N[lang][key]) || (I18N.hu[key]) || key;
+}
+
+function uid(prefix) {
+  return (prefix || "id") + "_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+}
+
+function genApiKey() {
+  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let body = "";
+  for (let i = 0; i < 40; i++) body += chars[Math.floor(Math.random() * chars.length)];
+  return "agdb_sk_" + body;
+}
+
+function genTenantId() {
+  const hex = "0123456789abcdef";
+  const seg = n => Array.from({ length: n }, () => hex[Math.floor(Math.random() * 16)]).join("");
+  return [seg(8), seg(4), seg(4), seg(4), seg(12)].join("-");
+}
+
+function fmtDate(ts) {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  return d.toLocaleString(State.settings.lang === "en" ? "en-US" : "hu-HU", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function fmtRelative(ts) {
+  if (!ts) return "—";
+  const diff = Date.now() - ts;
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return State.settings.lang === "en" ? "just now" : "épp most";
+  if (min < 60) return min + (State.settings.lang === "en" ? " min ago" : " perce");
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return hr + (State.settings.lang === "en" ? " h ago" : " órája");
+  const day = Math.floor(hr / 24);
+  return day + (State.settings.lang === "en" ? " d ago" : " napja");
+}
+
+function formatUptime(ms) {
+  if (!ms) return "—";
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  if (h > 0) return h + "ó " + (m % 60) + "p";
+  return m + "p " + (s % 60) + "mp";
+}
+
+function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function toast(message, type) {
+  type = type || "info";
+  const colors = {
+    success: "border-emerald-500",
+    error: "border-red-500",
+    info: "border-primary-blue",
+    warning: "border-amber-500"
+  };
+  const icons = {
+    success: '<span class="text-emerald-400">' + ICONS.check + '</span>',
+    error: '<span class="text-red-400">' + ICONS.x + '</span>',
+    info: '<span class="text-primary-blue">' + ICONS.info + '</span>',
+    warning: '<span class="text-amber-400">' + ICONS.warn + '</span>'
+  };
+  const el = document.createElement("div");
+  el.className = "toast-in glass-panel !rounded-xl p-4 flex items-start gap-3 border-l-4 " + colors[type];
+  el.innerHTML = '<div class="shrink-0 mt-0.5">' + icons[type] + '</div><div class="text-sm font-geist text-white/80 flex-1">' + escapeHtml(message) + '</div>';
+  document.getElementById("toast-container").appendChild(el);
+  setTimeout(() => {
+    el.style.transition = "opacity 0.3s, transform 0.3s";
+    el.style.opacity = "0";
+    el.style.transform = "translateX(120%)";
+    setTimeout(() => el.remove(), 300);
+  }, 3600);
+}
+
+function copyText(text, label) {
+  const done = () => toast((label || "Tartalom") + " " + t("copied").toLowerCase(), "success");
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  } else { fallbackCopy(text, done); }
+}
+function fallbackCopy(text, cb) {
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand("copy"); cb(); } catch (e) { toast("Másolás sikertelen", "error"); }
+  ta.remove();
+}
+
+function addLog(type, message, meta) {
+  const logs = State.logs;
+  logs.unshift({ id: uid("log"), type: type, message: message, meta: meta || "", ts: Date.now(), ip: "10.0." + Math.floor(Math.random() * 255) + "." + Math.floor(Math.random() * 255) });
+  if (logs.length > 500) logs.length = 500;
+  State.logs = logs;
+}
+
+function pushNotification(title, body, kind) {
+  const n = State.notifications;
+  n.unshift({ id: uid("ntf"), title: title, body: body, kind: kind || "info", ts: Date.now(), read: false });
+  if (n.length > 200) n.length = 200;
+  State.notifications = n;
+}
+
+function modal(title, bodyHtml, opts) {
+  opts = opts || {};
+  const root = document.getElementById("modal-root");
+  const wrap = document.createElement("div");
+  wrap.className = "fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md fade-in";
+  wrap.innerHTML =
+    '<div class="glass-panel w-full max-w-lg max-h-[88vh] overflow-y-auto border border-white/10">' +
+      '<div class="flex items-center justify-between p-6 border-b border-white/10">' +
+        '<h3 class="text-xl font-semibold font-geist text-white">' + escapeHtml(title) + '</h3>' +
+        '<button data-close class="p-2 rounded-full glass-button text-white/70 hover:text-white">' + ICONS.x + '</button>' +
+      '</div>' +
+      '<div class="p-6">' + bodyHtml + '</div>' +
+    '</div>';
+  root.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector("[data-close]").addEventListener("click", close);
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  if (opts.onMount) opts.onMount(wrap, close);
+  return { wrap: wrap, close: close };
+}
+
+function confirmDialog(title, message, onConfirm, opts) {
+  opts = opts || {};
+  const danger = opts.danger;
+  const body =
+    '<p class="text-white/70 mb-6">' + escapeHtml(message) + '</p>' +
+    (opts.requireText ? '<input id="confirm-text-input" class="w-full mb-4 px-4 py-3 rounded-2xl glass-input font-geist text-sm" placeholder="' + escapeHtml(opts.requireText) + '">' : '') +
+    '<div class="flex justify-end gap-3">' +
+      '<button data-cancel class="px-6 py-3 rounded-full font-medium text-sm glass-button hover:bg-white/10">' + t("cancel") + '</button>' +
+      '<button data-ok class="px-6 py-3 rounded-full font-medium text-sm text-white ' + (danger ? "bg-red-500 hover:bg-red-600 shadow-[0_0_15px_rgba(239,68,68,0.4)]" : "bg-primary-blue hover:opacity-90 shadow-[0_0_15px_rgba(10,132,255,0.4)]") + '">' + (opts.okLabel || t("confirm")) + '</button>' +
+    '</div>';
+  const m = modal(title, body, {
+    onMount(wrap, close) {
+      wrap.querySelector("[data-cancel]").addEventListener("click", close);
+      wrap.querySelector("[data-ok]").addEventListener("click", () => {
+        if (opts.requireText) {
+          const val = wrap.querySelector("#confirm-text-input").value.trim();
+          if (val !== opts.requireText) { toast("A megerősítő szöveg nem egyezik", "error"); return; }
+        }
+        close(); onConfirm();
+      });
+    }
+  });
+  return m;
+}
+
+function applyTheme() {
+  const s = State.settings;
+  document.documentElement.lang = s.lang;
+}
+
+function toggleTheme() {
+  const s = State.settings;
+  s.theme = s.theme === "dark" ? "light" : "dark";
+  State.settings = s;
+  applyTheme();
+  render();
+}
+
+function setLang(lang) {
+  const s = State.settings; s.lang = lang; State.settings = s;
+  applyTheme(); render();
+}
+
+function ensureMetrics() {
+  let m = State.metrics;
+  const today = new Date().toISOString().slice(0, 10);
+  if (!m || m.day !== today) {
+    const series = [];
+    for (let i = 23; i >= 0; i--) series.push({ h: i, requests: Math.floor(40 + Math.random() * 220), latency: Math.floor(18 + Math.random() * 70), errors: Math.floor(Math.random() * 6) });
+    m = {
+      day: today,
+      totalRequests: 184320 + Math.floor(Math.random() * 9000),
+      avgLatency: 42,
+      p95Latency: 118,
+      p99Latency: 246,
+      errorRate: 0.42,
+      series: series,
+      cpu: 23 + Math.floor(Math.random() * 30),
+      ram: 41 + Math.floor(Math.random() * 25),
+      pids: 38 + Math.floor(Math.random() * 40),
+      storageUsedMb: 412,
+      storageQuotaMb: 1024
+    };
+    State.metrics = m;
+  }
+  return m;
+}
+
+function runQuery(query) {
+  const records = State.db.records || [];
+  let filtered = records;
+  if (query.search) {
+    const term = query.search.toLowerCase();
+    filtered = records.filter(r => {
+      const str = JSON.stringify(r).toLowerCase();
+      return str.includes(term);
+    });
+  }
+  if (query.where && query.where.length) {
+    filtered = filtered.filter(r => {
+      return query.where.every(w => {
+        if (w.op === "==") return r[w.field] == w.value;
+        if (w.op === ">=") return r[w.field] >= w.value;
+        return true;
+      });
+    });
+  }
+  if (query.orderBy) {
+    const field = query.orderBy.field;
+    const dir = query.orderBy.dir === "desc" ? -1 : 1;
+    filtered.sort((a, b) => (a[field] > b[field] ? 1 : -1) * dir);
+  }
+  if (query.limit) filtered = filtered.slice(0, query.limit);
+  return { rows: filtered };
+}
+
+function seedIfEmpty() {
+  if (!State.account) return;
+  if (State.db.records.length === 0) {
+    const sample = [
+      { id: "doc_1001", title: "Vector indexing overview", category: "engineering", content: "AGDB combines graph relationships with vector embeddings for hybrid retrieval at scale.", score: 0.98, tags: ["vector", "index", "graph"], createdAt: Date.now() - 86400000 * 6 },
+      { id: "doc_1002", title: "Authentication with bearer tokens", category: "security", content: "All requests authenticate using a bearer API key passed in the Authorization header.", score: 0.91, tags: ["auth", "security", "api"], createdAt: Date.now() - 86400000 * 5 },
+      { id: "doc_1003", title: "Tenant isolation model", category: "architecture", content: "Each tenant runs in an isolated sandbox with dedicated CPU, RAM and PID quotas.", score: 0.88, tags: ["tenant", "isolation", "sandbox"], createdAt: Date.now() - 86400000 * 4 },
+      { id: "doc_1004", title: "Full text search ranking", category: "engineering", content: "Full text queries rank records by BM25 relevance combined with embedding similarity.", score: 0.95, tags: ["search", "ranking", "bm25"], createdAt: Date.now() - 86400000 * 3 },
+      { id: "doc_1005", title: "Import and export pipelines", category: "data", content: "Import JSON or NDJSON datasets and export query results as JSON or CSV.", score: 0.82, tags: ["import", "export", "data"], createdAt: Date.now() - 86400000 * 2 },
+      { id: "doc_1006", title: "Resource quota enforcement", category: "operations", content: "Quotas cap CPU seconds, RAM megabytes and concurrent PIDs per sandbox instance.", score: 0.79, tags: ["quota", "cpu", "ram"], createdAt: Date.now() - 86400000 }
+    ];
+    State.db = { records: sample };
+  }
+  if (State.saved.length === 0) {
+    State.saved = [
+      { id: uid("q"), name: "Engineering dokumentumok", query: { select: ["title", "category", "score"], from: "documents", where: [{ field: "category", op: "==", value: "engineering" }], orderBy: { field: "score", dir: "desc" }, limit: 10, topK: 5 }, createdAt: Date.now() - 86400000 * 2 }
+    ];
+  }
+  if (State.logs.length === 0) {
+    addLog("auth", "Sikeres bejelentkezés API kulccsal", "key: " + (State.session ? State.session.apiKey.slice(0, 16) + "…" : ""));
+    addLog("query", "SELECT * FROM documents LIMIT 10", "rows: 6 · 38ms");
+    addLog("security", "Új API kulcs generálva", "scope: full");
+    addLog("access", "GET /v1/databases/documents", "200 · 41ms");
+  }
+  if (State.notifications.length === 0) {
+    pushNotification("Üdvözöljük az AGDB-ben!", "A fiókja készen áll. Indítsa el a sandboxot az első lekérdezéshez.", "success");
+    pushNotification("Sandbox készenlét", "A tenant sandbox inicializálva lett.", "info");
+  }
+}
+</script>
+
+<script>
+const Pages = {};
+
+function statCard(label, value, sub, icon, accent) {
+  return '<div class="glass-panel p-6">' +
+    '<div class="flex items-center justify-between mb-4">' +
+      '<span class="text-sm font-geist text-white/60">' + escapeHtml(label) + '</span>' +
+      '<span class="' + (accent || "text-primary-blue") + '">' + icon + '</span>' +
+    '</div>' +
+    '<div class="text-4xl font-semibold tracking-tight text-white">' + value + '</div>' +
+    (sub ? '<div class="text-sm font-geist text-white/50 mt-2">' + sub + '</div>' : '') +
+  '</div>';
+}
+
+function sectionHeader(title, subtitle, actionsHtml) {
+  return '<div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8">' +
+    '<div><h1 class="text-3xl font-semibold tracking-tight text-white">' + escapeHtml(title) + '</h1>' +
+    (subtitle ? '<p class="text-white/60 mt-2 max-w-2xl">' + escapeHtml(subtitle) + '</p>' : '') + '</div>' +
+    (actionsHtml ? '<div class="flex flex-wrap gap-3">' + actionsHtml + '</div>' : '') +
+  '</div>';
+}
+
+function btnPrimary(label, attrs) {
+  return '<button ' + (attrs || "") + ' class="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-primary-blue text-white font-medium text-sm hover:opacity-90 transition shadow-[0_0_15px_rgba(10,132,255,0.4)]">' + label + '</button>';
+}
+function btnGhost(label, attrs) {
+  return '<button ' + (attrs || "") + ' class="inline-flex items-center gap-2 px-6 py-3 rounded-full glass-button font-medium text-sm text-white transition">' + label + '</button>';
+}
+
+function copyButton(text, label) {
+  const id = uid("cp");
+  setTimeout(() => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("click", () => copyText(text, label || "Tartalom"));
+  }, 0);
+  return '<button id="' + id + '" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-geist glass-button hover:bg-white/10">' + ICONS.copy + t("copy") + '</button>';
+}
+
+function codeBlock(code, lang) {
+  const id = uid("code");
+  setTimeout(() => {
+    const el = document.getElementById(id + "_btn");
+    if (el) el.addEventListener("click", () => copyText(code, "Kód"));
+  }, 0);
+  return '<div class="relative group rounded-2xl overflow-hidden glass border border-white/10">' +
+    '<div class="flex items-center justify-between px-4 py-2 bg-black/40 border-b border-white/10">' +
+      '<span class="text-xs font-geist uppercase tracking-wide text-white/50">' + escapeHtml(lang || "code") + '</span>' +
+      '<button id="' + id + '_btn" class="inline-flex items-center gap-1.5 text-xs font-geist text-white/50 hover:text-white">' + ICONS.copy + t("copy") + '</button>' +
+    '</div>' +
+    '<pre class="p-4 overflow-x-auto text-sm leading-relaxed bg-transparent text-white/90"><code>' + escapeHtml(code) + '</code></pre>' +
+  '</div>';
+}
+
+function badge(text, kind) {
+  const map = {
+    green: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
+    red: "bg-red-500/20 text-red-300 border border-red-500/30",
+    amber: "bg-amber-500/20 text-amber-300 border border-amber-500/30",
+    blue: "bg-blue-500/20 text-blue-300 border border-blue-500/30",
+    gray: "bg-white/10 text-white/70 border border-white/20"
+  };
+  return '<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-geist font-medium ' + (map[kind] || map.gray) + '">' + escapeHtml(text) + '</span>';
+}
+
+function emptyState(icon, title, subtitle, actionHtml) {
+  return '<div class="flex flex-col items-center justify-center text-center py-16 px-6">' +
+    '<div class="w-16 h-16 rounded-2xl glass flex items-center justify-center text-white/50 mb-5">' + icon + '</div>' +
+    '<h3 class="text-lg font-semibold text-white mb-2">' + escapeHtml(title) + '</h3>' +
+    '<p class="text-white/50 max-w-md mb-6">' + escapeHtml(subtitle) + '</p>' +
+    (actionHtml || "") +
+  '</div>';
+}
+
+function loadingBlock(label) {
+  return '<div class="flex items-center justify-center gap-3 py-16 text-white/60">' +
+    '<span class="spin">' + ICONS.refresh + '</span><span class="font-geist">' + escapeHtml(label || "Betöltés...") + '</span></div>';
+}
+
+function field(label, inputHtml, hint) {
+  return '<label class="block mb-4"><span class="block text-sm font-medium font-geist text-white/80 mb-1.5">' + escapeHtml(label) + '</span>' + inputHtml +
+    (hint ? '<span class="block text-xs text-white/50 mt-1.5 font-geist">' + escapeHtml(hint) + '</span>' : '') + '</label>';
+}
+function inputCls() {
+  return "w-full px-4 py-3 rounded-2xl glass-input font-geist text-sm transition";
+}
+</script>
+
+<script>
+function isAuthed() { return !!(State.session && State.session.loggedIn); }
+
+const NAV = [
+  { group: "group_overview", items: [
+    { id: "dashboard", label: "nav_dashboard", icon: "dashboard" }
+  ]},
+  { group: "group_account", items: [
+    { id: "apikeys", label: "nav_apikeys", icon: "key" },
+    { id: "tenant", label: "nav_tenant", icon: "building" },
+    { id: "profile", label: "nav_profile", icon: "user" },
+    { id: "settings", label: "nav_settings", icon: "gear" },
+    { id: "billing", label: "nav_billing", icon: "card" }
+  ]},
+  { group: "group_infra", items: [
+    { id: "sandbox", label: "nav_sandbox", icon: "server" },
+    { id: "storage", label: "nav_storage", icon: "database" },
+    { id: "status", label: "nav_status", icon: "heart" }
+  ]},
+  { group: "group_data", items: [
+    { id: "query", label: "nav_query", icon: "terminal" },
+    { id: "search", label: "nav_search", icon: "search" },
+    { id: "history", label: "nav_history", icon: "clock" },
+    { id: "saved", label: "nav_saved", icon: "bookmark" },
+    { id: "templates", label: "nav_templates", icon: "template" },
+    { id: "data", label: "nav_data", icon: "database" },
+    { id: "stats", label: "nav_stats", icon: "chart" }
+  ]},
+  { group: "group_ops", items: [
+    { id: "analytics", label: "nav_analytics", icon: "chart" },
+    { id: "audit", label: "nav_audit", icon: "shield" },
+    { id: "notifications", label: "nav_notifications", icon: "bell" },
+    { id: "webhooks", label: "nav_webhooks", icon: "swap" }
+  ]},
+  { group: "group_dev", items: [
+    { id: "console", label: "nav_console", icon: "terminal" },
+    { id: "tester", label: "nav_tester", icon: "play" },
+    { id: "jsontools", label: "nav_jsontools", icon: "code" },
+    { id: "samples", label: "nav_samples", icon: "code" }
+  ]},
+  { group: "group_docs", items: [
+    { id: "docs", label: "nav_docs", icon: "book" },
+    { id: "apiref", label: "nav_apiref", icon: "doc" },
+    { id: "swagger", label: "nav_swagger", icon: "doc" },
+    { id: "errors", label: "nav_errors", icon: "bug" }
+  ]},
+  { group: "group_other", items: [
+    { id: "admin", label: "nav_admin", icon: "admin" },
+    { id: "support", label: "nav_support", icon: "life" },
+    { id: "legal", label: "nav_legal", icon: "doc" },
+    { id: "changelog", label: "nav_changelog", icon: "flag" },
+    { id: "feedback", label: "nav_feedback", icon: "heart" }
+  ]}
+];
+
+function navLabelById(id) {
+  for (const g of NAV) for (const it of g.items) if (it.id === id) return t(it.label);
+  return id;
+}
+
+let sidebarOpen = false;
+
+function render() {
+  applyTheme();
+  const app = document.getElementById("app");
+  const hash = (location.hash || "#/").replace(/^#\/?/, "");
+  const route = hash.split("?")[0] || "";
+
+  if (!isAuthed()) {
+    if (route === "register") { app.innerHTML = Pages.register(); afterAuthRender("register"); return; }
+    if (route === "login") { app.innerHTML = Pages.login(); afterAuthRender("login"); return; }
+    if (route === "legal" || route === "support" || route === "status" || route === "docs") {
+      app.innerHTML = renderPublicShell(route);
+      afterPublicRender(route);
+      return;
+    }
+    app.innerHTML = Pages.landing();
+    afterLandingRender();
+    return;
+  }
+
+  seedIfEmpty();
+  if (!State.settings.onboarded) {
+    app.innerHTML = Pages.onboarding();
+    Pages.onboardingInit && Pages.onboardingInit();
+    return;
+  }
+
+  const known = NAV.some(g => g.items.some(it => it.id === route));
+  const current = known ? route : "dashboard";
+  app.innerHTML = renderAppShell(current);
+  const fn = Pages[current];
+  const main = document.getElementById("page-content");
+  if (fn) {
+    main.innerHTML = '<div class="fade-in">' + fn() + '</div>';
+    const initFn = Pages[current + "Init"];
+    if (initFn) initFn();
+  }
+  bindShell(current);
+}
+
+function renderPublicShell(route) {
+  const map = { legal: Pages.legal, support: Pages.support, status: Pages.status, docs: Pages.docs };
+  const fn = map[route] || Pages.landing;
+  return '<div class="min-h-screen">' + publicNav() + '<main class="max-w-6xl mx-auto px-6 py-12 fade-in">' + fn() + '</main>' + publicFooter() + '</div>';
+}
+function afterPublicRender(route) {
+  bindPublicNav();
+  const initFn = Pages[route + "Init"];
+  if (initFn) initFn();
+}
+function afterAuthRender(route) {
+  const initFn = Pages[route + "Init"];
+  if (initFn) initFn();
+}
+
+function publicNav() {
+  return '<header class="sticky top-0 z-40 glass border-b-0 rounded-none">' +
+    '<div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">' +
+      '<a href="#/" class="flex items-center gap-2.5 font-semibold text-lg text-white"><span class="w-9 h-9 rounded-xl brand-gradient text-white flex items-center justify-center shadow-[0_0_15px_rgba(10,132,255,0.5)]">' + ICONS.logo + '</span>AGDB</a>' +
+      '<nav class="hidden md:flex items-center gap-6 text-sm font-geist text-white/70">' +
+        '<a href="#/docs" class="hover:text-white transition">Dokumentáció</a>' +
+        '<a href="#/status" class="hover:text-white transition">Rendszerállapot</a>' +
+        '<a href="#/support" class="hover:text-white transition">Támogatás</a>' +
+        '<a href="#/legal" class="hover:text-white transition">Jogi</a>' +
+      '</nav>' +
+      '<div class="flex items-center gap-3">' +
+        '<button data-theme class="p-2 rounded-full glass-button hover:bg-white/10">' + (State.settings.theme === "dark" ? ICONS.sun : ICONS.moon) + '</button>' +
+        '<a href="#/login" class="hidden sm:inline-flex px-5 py-2.5 rounded-full text-sm font-medium glass-button hover:bg-white/10">' + t("login") + '</a>' +
+        '<a href="#/register" class="inline-flex px-5 py-2.5 rounded-full bg-primary-blue text-white text-sm font-medium hover:opacity-90 shadow-[0_0_15px_rgba(10,132,255,0.4)]">' + t("register") + '</a>' +
+      '</div>' +
+    '</div></header>';
+}
+function bindPublicNav() {
+  const tb = document.querySelector("[data-theme]");
+  if (tb) tb.addEventListener("click", toggleTheme);
+}
+function publicFooter() {
+  return '<footer class="border-t border-white/10 mt-16 glass rounded-none border-b-0 border-x-0">' +
+    '<div class="max-w-6xl mx-auto px-6 py-10 grid grid-cols-2 md:grid-cols-4 gap-8 text-sm font-geist">' +
+      '<div><div class="flex items-center gap-2 font-semibold text-base text-white mb-3"><span class="w-7 h-7 rounded-lg brand-gradient text-white flex items-center justify-center">' + ICONS.logo + '</span>AGDB</div><p class="text-white/60">Graph + vektor adatbázis fejlesztőknek.</p></div>' +
+      '<div><h4 class="font-semibold text-white mb-3">Termék</h4><ul class="space-y-2 text-white/60"><li><a href="#/docs" class="hover:text-primary-blue transition">Dokumentáció</a></li><li><a href="#/register" class="hover:text-primary-blue transition">Kezdés</a></li><li><a href="#/status" class="hover:text-primary-blue transition">Állapot</a></li></ul></div>' +
+      '<div><h4 class="font-semibold text-white mb-3">Cég</h4><ul class="space-y-2 text-white/60"><li><a href="#/support" class="hover:text-primary-blue transition">Kapcsolat</a></li><li><a href="#/legal" class="hover:text-primary-blue transition">Jogi</a></li></ul></div>' +
+      '<div><h4 class="font-semibold text-white mb-3">Jogi</h4><ul class="space-y-2 text-white/60"><li><a href="#/legal" class="hover:text-primary-blue transition">Adatvédelem</a></li><li><a href="#/legal" class="hover:text-primary-blue transition">Feltételek</a></li></ul></div>' +
+    '</div>' +
+    '<div class="border-t border-white/10 py-5 text-center text-xs text-white/40 font-geist">© 2026 AGDB · v2.4.0 · Minden jog fenntartva.</div>' +
+  '</footer>';
+}
+
+function renderAppShell(current) {
+  const unread = State.notifications.filter(n => !n.read).length;
+  let navHtml = "";
+  for (const grp of NAV) {
+    navHtml += '<div class="px-3 mt-5 mb-2 text-[11px] uppercase tracking-wider font-geist font-semibold text-white/40">' + t(grp.group) + '</div>';
+    for (const it of grp.items) {
+      const active = it.id === current;
+      const badgeHtml = it.id === "notifications" && unread > 0 ? '<span class="ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-primary-blue text-white">' + unread + '</span>' : '';
+      navHtml += '<a href="#/' + it.id + '" data-nav class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-geist transition ' +
+        (active ? "bg-primary-blue/20 text-primary-blue font-medium border border-primary-blue/30 shadow-[inset_0_0_10px_rgba(10,132,255,0.2)]" : "text-white/70 hover:bg-white/10") + '">' +
+        '<span class="' + (active ? "text-primary-blue" : "") + '">' + ICONS[it.icon] + '</span>' + t(it.label) + badgeHtml + '</a>';
+    }
+  }
+
+  const sidebar =
+    '<aside id="sidebar" class="fixed lg:sticky top-0 z-50 lg:z-10 h-screen w-72 shrink-0 glass border-y-0 border-l-0 border-r border-white/10 rounded-none flex flex-col transition-transform duration-300 ' +
+      (sidebarOpen ? "translate-x-0" : "-translate-x-full") + ' lg:translate-x-0">' +
+      '<div class="h-16 flex items-center justify-between px-5 border-b border-white/10">' +
+        '<a href="#/dashboard" class="flex items-center gap-2.5 font-semibold text-lg text-white"><span class="w-9 h-9 rounded-xl brand-gradient text-white flex items-center justify-center shadow-[0_0_15px_rgba(10,132,255,0.5)]">' + ICONS.logo + '</span>AGDB</a>' +
+        '<button data-close-sidebar class="lg:hidden p-2 rounded-full glass-button hover:bg-white/10">' + ICONS.x + '</button>' +
+      '</div>' +
+      '<nav class="flex-1 overflow-y-auto px-3 py-3">' + navHtml + '</nav>' +
+      '<div class="p-3 border-t border-white/10">' +
+        '<button data-logout class="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-geist text-white/70 hover:bg-white/10 transition">' + ICONS.logout + t("logout") + '</button>' +
+      '</div>' +
+    '</aside>';
+
+  const acc = State.account;
+  const topbar =
+    '<header class="sticky top-0 z-30 h-16 glass border-x-0 border-t-0 border-b border-white/10 rounded-none flex items-center gap-3 px-4 sm:px-6">' +
+      '<button data-open-sidebar class="lg:hidden p-2 rounded-full glass-button hover:bg-white/10">' + ICONS.menu + '</button>' +
+      '<div class="hidden sm:flex items-center gap-2 text-white/60 flex-1 max-w-md relative">' +
+        '<span class="absolute pointer-events-none left-4 opacity-60">' + ICONS.search + '</span>' +
+        '<input id="global-search" class="w-full pl-11 pr-4 py-2 rounded-full glass-input text-sm font-geist" placeholder="' + t("search_placeholder") + '">' +
+      '</div>' +
+      '<div class="flex items-center gap-3 ml-auto">' +
+        '<select data-lang class="px-3 py-2 rounded-full glass-input text-sm font-geist">' +
+          '<option value="hu" class="bg-black text-white"' + (State.settings.lang === "hu" ? " selected" : "") + '>HU</option>' +
+          '<option value="en" class="bg-black text-white"' + (State.settings.lang === "en" ? " selected" : "") + '>EN</option>' +
+        '</select>' +
+        '<button data-theme class="p-2 rounded-full glass-button hover:bg-white/10">' + (State.settings.theme === "dark" ? ICONS.sun : ICONS.moon) + '</button>' +
+        '<a href="#/notifications" class="relative p-2 rounded-full glass-button hover:bg-white/10">' + ICONS.bell + (unread > 0 ? '<span class="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] border border-black"></span>' : '') + '</a>' +
+        '<a href="#/profile" class="w-9 h-9 rounded-full brand-gradient text-white flex items-center justify-center text-sm font-semibold shadow-[0_0_10px_rgba(10,132,255,0.4)]">' + (acc ? escapeHtml(acc.email[0].toUpperCase()) : "A") + '</a>' +
+      '</div>' +
+    '</header>';
+
+  return '<div class="flex min-h-screen">' +
+    (sidebarOpen ? '<div data-overlay class="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"></div>' : '') +
+    sidebar +
+    '<div class="flex-1 min-w-0 flex flex-col">' + topbar +
+      '<main id="page-content" class="flex-1 p-4 sm:p-6 lg:p-10 max-w-[1400px] w-full mx-auto"></main>' +
+    '</div>' +
+  '</div>';
+}
+
+function bindShell(current) {
+  document.querySelectorAll("[data-nav]").forEach(a => a.addEventListener("click", () => { sidebarOpen = false; }));
+  const ob = document.querySelector("[data-open-sidebar]");
+  if (ob) ob.addEventListener("click", () => { sidebarOpen = true; render(); });
+  const cb = document.querySelector("[data-close-sidebar]");
+  if (cb) cb.addEventListener("click", () => { sidebarOpen = false; render(); });
+  const ov = document.querySelector("[data-overlay]");
+  if (ov) ov.addEventListener("click", () => { sidebarOpen = false; render(); });
+  const tb = document.querySelector("[data-theme]");
+  if (tb) tb.addEventListener("click", toggleTheme);
+  const lg = document.querySelector("[data-lang]");
+  if (lg) lg.addEventListener("change", e => setLang(e.target.value));
+  const lo = document.querySelector("[data-logout]");
+  if (lo) lo.addEventListener("click", () => doLogout());
+  const gs = document.getElementById("global-search");
+  if (gs) gs.addEventListener("keydown", e => {
+    if (e.key === "Enter") {
+      const q = e.target.value.trim().toLowerCase();
+      const hit = NAV.flatMap(g => g.items).find(it => t(it.label).toLowerCase().includes(q) || it.id.includes(q));
+      if (hit) { location.hash = "#/" + hit.id; } else { toast("Nincs találat: " + q, "warning"); }
+    }
+  });
+}
+
+function doLogout() {
+  confirmDialog(t("logout"), "Biztosan kijelentkezik a konzolból?", () => {
+    addLog("auth", "Kijelentkezés", "");
+    State.session = { loggedIn: false };
+    toast("Sikeresen kijelentkezett", "success");
+    location.hash = "#/login";
+    render();
+  });
+}
+</script>
+
+<script>
+Pages.landing = function() {
+  return '<div class="min-h-screen">' + publicNav() +
+    '<section class="relative text-white overflow-hidden">' +
+      '<div class="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(10,132,255,0.15),transparent_70%)] pointer-events-none"></div>' +
+      '<div class="max-w-6xl mx-auto px-6 py-24 sm:py-32 text-center relative z-10">' +
+        '<div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass border border-white/10 text-sm font-geist mb-8">' + ICONS.rocket + 'Graph + Vektor adatbázis felhőben</div>' +
+        '<h1 class="text-5xl sm:text-7xl font-semibold tracking-tight leading-[1.05] mb-6 text-transparent bg-clip-text bg-gradient-to-b from-white to-white/60">Az AI-natív<br>adatbázis platform</h1>' +
+        '<p class="text-lg sm:text-xl text-white/70 max-w-2xl mx-auto mb-10">Hibrid keresés gráf kapcsolatokkal és vektor beágyazásokkal. Izolált tenantok, sandbox környezetek és teljes körű API a fejlesztéshez.</p>' +
+        '<div class="flex flex-wrap items-center justify-center gap-4">' +
+          '<a href="#/register" class="inline-flex items-center gap-2 px-8 py-4 rounded-full bg-white text-black font-semibold hover:bg-white/90 transition shadow-[0_0_20px_rgba(255,255,255,0.3)]">' + t("register") + ' díjmentesen</a>' +
+          '<a href="#/docs" class="inline-flex items-center gap-2 px-8 py-4 rounded-full glass-button text-white font-semibold hover:bg-white/10 transition">Dokumentáció megtekintése</a>' +
+        '</div>' +
+        '<div class="mt-16 max-w-3xl mx-auto glass-panel p-2">' +
+          '<div class="rounded-[20px] bg-black/60 p-5 text-left text-sm font-geist text-white/90 overflow-x-auto border border-white/5"><pre><code>POST ' + API_BASE + '/databases/documents/query\nAuthorization: Bearer agdb_sk_••••••••\n\n{ "search": "vector index", "topK": 5 }</code></pre></div>' +
+        '</div>' +
+      '</div>' +
+    '</section>' +
+    '<section class="max-w-6xl mx-auto px-6 py-20">' +
+      '<div class="text-center mb-14"><h2 class="text-3xl sm:text-4xl font-semibold tracking-tight mb-3 text-white">Minden, amire egy fejlesztőnek szüksége van</h2><p class="text-white/60 max-w-2xl mx-auto">A regisztrációtól a produkciós lekérdezésekig egyetlen konzolban.</p></div>' +
+      '<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">' +
+        landingCard("key", "API kulcs kezelés", "Generálj, regenerálj és vonj vissza kulcsokat, kövesd a státuszukat és aktivitásukat.") +
+        landingCard("server", "Sandbox környezet", "Indítsd, állítsd le és indítsd újra az izolált tenant sandboxot valós idejű státusszal.") +
+        landingCard("terminal", "Query szerkesztő", "Vizuális JSON query builder validációval, futtatással és előzményekkel.") +
+        landingCard("chart", "Analitika", "Kérésszám, válaszidő és hibaarány statisztikák valós időben.") +
+        landingCard("shield", "Audit naplók", "Hozzáférési naplók, biztonsági események és teljes auditálhatóság.") +
+        landingCard("book", "Dokumentáció", "Teljes API referencia, OpenAPI nézet és kódminták négy nyelven.") +
+      '</div>' +
+    '</section>' +
+    '<section class="relative text-white overflow-hidden"><div class="absolute inset-0 bg-[radial-gradient(circle_at_50%_100%,rgba(10,132,255,0.15),transparent_70%)] pointer-events-none"></div><div class="max-w-4xl mx-auto px-6 py-20 text-center relative z-10"><h2 class="text-3xl sm:text-4xl font-semibold mb-4">Kezdje el még ma</h2><p class="text-white/70 mb-8 text-lg">Ingyenes csomag, nincs szükség bankkártyára.</p><a href="#/register" class="inline-flex px-8 py-4 rounded-full bg-white text-black font-semibold hover:bg-white/90 transition shadow-[0_0_20px_rgba(255,255,255,0.3)]">Fiók létrehozása</a></div></section>' +
+    publicFooter() + '</div>';
+};
+function landingCard(icon, title, body) {
+  return '<div class="glass-panel p-7 hover:shadow-[0_8px_32px_rgba(10,132,255,0.15)] hover:border-primary-blue/30 transition duration-300">' +
+    '<div class="w-12 h-12 rounded-2xl bg-primary-blue/20 text-primary-blue flex items-center justify-center mb-5 border border-primary-blue/30 shadow-[inset_0_0_10px_rgba(10,132,255,0.2)]">' + ICONS[icon] + '</div>' +
+    '<h3 class="text-lg font-semibold text-white mb-2">' + escapeHtml(title) + '</h3>' +
+    '<p class="text-white/60 text-sm leading-relaxed">' + escapeHtml(body) + '</p></div>';
+}
+function afterLandingRender() { bindPublicNav(); }
+
+function authShell(title, subtitle, formHtml, footerHtml) {
+  return '<div class="min-h-screen grid lg:grid-cols-2 relative">' +
+    '<div class="hidden lg:flex flex-col justify-between p-12 relative z-10 border-r border-white/10 glass rounded-none">' +
+      '<a href="#/" class="flex items-center gap-2.5 font-semibold text-xl text-white"><span class="w-10 h-10 rounded-xl glass flex items-center justify-center shadow-[0_0_15px_rgba(255,255,255,0.1)]">' + ICONS.logo + '</span>AGDB</a>' +
+      '<div><h2 class="text-4xl font-semibold leading-tight mb-4 text-transparent bg-clip-text bg-gradient-to-b from-white to-white/60">Építsen AI-alkalmazásokat gyorsabban.</h2><p class="text-white/70 text-lg">Hibrid gráf és vektor keresés egyetlen API mögött, izolált tenant sandboxokkal.</p></div>' +
+      '<p class="text-white/40 text-sm font-geist">© 2026 AGDB · v2.4.0</p>' +
+    '</div>' +
+    '<div class="flex items-center justify-center p-6 sm:p-12 relative z-10">' +
+      '<div class="w-full max-w-md fade-in glass-panel p-8">' +
+        '<a href="#/" class="lg:hidden flex items-center gap-2.5 font-semibold text-xl mb-8 text-white"><span class="w-10 h-10 rounded-xl brand-gradient text-white flex items-center justify-center">' + ICONS.logo + '</span>AGDB</a>' +
+        '<h1 class="text-3xl font-semibold tracking-tight mb-2 text-white">' + escapeHtml(title) + '</h1>' +
+        '<p class="text-white/60 mb-8">' + escapeHtml(subtitle) + '</p>' +
+        formHtml + footerHtml +
+        '<div class="flex items-center justify-center gap-4 mt-8 text-sm font-geist text-white/50">' +
+          '<button data-theme class="p-2 rounded-full glass-button hover:bg-white/10">' + (State.settings.theme === "dark" ? ICONS.sun : ICONS.moon) + '</button>' +
+          '<a href="#/docs" class="hover:text-white transition">Dokumentáció</a><a href="#/support" class="hover:text-white transition">Támogatás</a>' +
+        '</div>' +
+      '</div>' +
+    '</div></div>';
+}
+
+Pages.register = function() {
+  const form =
+    '<form id="register-form" class="space-y-1">' +
+      field("E-mail cím", '<input id="reg-email" type="email" required class="' + inputCls() + '" placeholder="ön@cég.hu">', "Erre a címre küldjük az értesítéseket.") +
+      field("Jelszó", '<input id="reg-password" type="password" required minlength="8" class="' + inputCls() + '" placeholder="Legalább 8 karakter">') +
+      field("Jelszó megerősítése", '<input id="reg-password2" type="password" required class="' + inputCls() + '" placeholder="Jelszó újra">') +
+      '<label class="flex items-start gap-2.5 mb-5 mt-2"><input id="reg-terms" type="checkbox" class="mt-1 w-4 h-4 accent-[#0a84ff]"><span class="text-sm font-geist text-white/60">Elfogadom a <a href="#/legal" class="text-primary-blue hover:underline">Felhasználási feltételeket</a> és az <a href="#/legal" class="text-primary-blue hover:underline">Adatvédelmi szabályzatot</a>.</span></label>' +
+      '<button type="submit" class="w-full py-3 rounded-full bg-primary-blue text-white font-semibold hover:opacity-90 shadow-[0_0_15px_rgba(10,132,255,0.4)]">Fiók létrehozása</button>' +
+    '</form>';
+  const footer = '<p class="text-center text-sm font-geist text-white/60 mt-6">Van már fiókja? <a href="#/login" class="text-primary-blue font-medium hover:underline">' + t("login") + '</a></p>';
+  return authShell(t("register"), "Hozzon létre egy AGDB fiókot e-mail címmel.", form, footer);
+};
+Pages.registerInit = function() {
+  bindPublicNav();
+  const f = document.getElementById("register-form");
+  f.addEventListener("submit", e => {
+    e.preventDefault();
+    const email = document.getElementById("reg-email").value.trim();
+    const p1 = document.getElementById("reg-password").value;
+    const p2 = document.getElementById("reg-password2").value;
+    const terms = document.getElementById("reg-terms").checked;
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast("Érvénytelen e-mail cím", "error"); return; }
+    if (p1.length < 8) { toast("A jelszónak legalább 8 karakteresnek kell lennie", "error"); return; }
+    if (p1 !== p2) { toast("A jelszavak nem egyeznek", "error"); return; }
+    if (!terms) { toast("Fogadja el a feltételeket", "warning"); return; }
+    const btn = f.querySelector("button[type=submit]");
+    btn.disabled = true; btn.textContent = "Regisztráció...";
+    fetch(API_BASE + "/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email }) })
+      .then(r => r.json().catch(() => ({})))
+      .then(data => {
+        if (data.error) { toast("Hiba: " + data.error, "error"); btn.disabled = false; btn.textContent = "Fiók létrehozása"; return; }
+        const key = data.api_key || genApiKey();
+        const tenantId = data.tenant_id || genTenantId();
+        const ts = (data.created_at || 0) * 1000 || Date.now();
+        State.account = { email: email, tenantId: tenantId, createdAt: ts, name: email.split("@")[0] };
+        State.apikeys = [{ id: "key_" + tenantId, name: "Primary Key", key: key, createdAt: ts, status: "active", lastUsed: null, scope: "full" }];
+        State.tenant = { id: tenantId, name: "default", status: "active", region: "eu-west-1", createdAt: ts, activity: Date.now() };
+        State.session = { loggedIn: true, apiKey: key, loginAt: Date.now() };
+        const s = State.settings; s.onboarded = false; State.settings = s;
+        addLog("auth", "Új fiók regisztrálva", email);
+        showKeyModal(key);
+        toast("Fiók sikeresen létrehozva!", "success");
+        location.hash = "#/onboarding";
+        render();
+      })
+      .catch(() => { toast("Kapcsolati hiba", "error"); btn.disabled = false; btn.textContent = "Fiók létrehozása"; });
+  });
+};
+
+Pages.login = function() {
+  const form =
+    '<form id="login-form" class="space-y-1">' +
+      field("API kulcs", '<input id="login-key" type="text" required class="' + inputCls() + ' font-mono" placeholder="agdb_sk_...">', "Jelentkezzen be a tenant API kulcsával.") +
+      '<button type="submit" class="w-full py-3 rounded-full bg-primary-blue text-white font-semibold hover:opacity-90 shadow-[0_0_15px_rgba(10,132,255,0.4)]">' + t("login") + '</button>' +
+    '</form>' +
+    '<div class="mt-4 p-4 rounded-2xl glass border border-white/10 text-sm font-geist text-white/60 flex gap-2">' + ICONS.info + '<span>Nincs még API kulcsa? A regisztrációkor automatikusan kap egyet.</span></div>';
+  const footer = '<p class="text-center text-sm font-geist text-white/60 mt-6">Nincs még fiókja? <a href="#/register" class="text-primary-blue font-medium hover:underline">' + t("register") + '</a></p>';
+  return authShell("Bejelentkezés API kulccsal", "Adja meg a tenant API kulcsát a folytatáshoz.", form, footer);
+};
+Pages.loginInit = function() {
+  bindPublicNav();
+  const f = document.getElementById("login-form");
+  f.addEventListener("submit", e => {
+    e.preventDefault();
+    const key = document.getElementById("login-key").value.trim();
+    if (!key.startsWith("agdb_")) { toast("Érvénytelen kulcs formátum (agdb_...)", "error"); return; }
+    const btn = f.querySelector("button[type=submit]");
+    btn.disabled = true; btn.textContent = "Bejelentkezés...";
+    fetch(API_BASE + "/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_key: key }) })
+      .then(r => r.json().catch(() => ({})))
+      .then(data => {
+        if (data.error) { toast("Hibás API kulcs", "error"); btn.disabled = false; btn.textContent = "Bejelentkezés"; return; }
+        const tenantId = data.tenant_id || genTenantId();
+        const email = data.email || "";
+        const ts = (data.created_at || 0) * 1000 || Date.now();
+        State.account = { email: email, tenantId: tenantId, createdAt: ts, name: email.split("@")[0] || "developer" };
+        State.apikeys = [{ id: "key_" + tenantId, name: "Primary Key", key: key, createdAt: ts, status: "active", lastUsed: Date.now(), scope: "full" }];
+        State.tenant = { id: tenantId, name: "default", status: data.status || "active", region: "eu-west-1", createdAt: ts, activity: Date.now() };
+        State.session = { loggedIn: true, apiKey: key, loginAt: Date.now() };
+        addLog("auth", "Sikeres bejelentkezés API kulccsal", key.slice(0, 16) + "…");
+        toast("Üdvözöljük újra!", "success");
+        location.hash = "#/dashboard";
+        render();
+      })
+      .catch(() => { toast("Kapcsolati hiba", "error"); btn.disabled = false; btn.textContent = "Bejelentkezés"; });
+  });
+};
+</script>
+
+<script>
+Pages.onboarding = function() {
+  const acc = State.account;
+  return '<div class="min-h-screen flex items-center justify-center p-6">' +
+    '<div class="w-full max-w-2xl glass-panel border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-hidden fade-in">' +
+      '<div class="bg-black/40 border-b border-white/10 p-8"><div class="inline-flex items-center gap-2 px-3 py-1 rounded-full glass border border-white/10 text-sm mb-4">' + ICONS.rocket + 'Üdvözlő varázsló</div>' +
+        '<h1 class="text-3xl font-semibold text-white">Üdvözöljük, ' + escapeHtml(acc ? acc.name : "fejlesztő") + '!</h1>' +
+        '<p class="text-white/70 mt-2">Néhány lépés, és készen áll az első lekérdezésre.</p></div>' +
+      '<div class="p-8">' +
+        '<div id="onb-steps" class="space-y-4 mb-8"></div>' +
+        '<div class="flex justify-between items-center">' +
+          '<button id="onb-skip" class="text-sm font-geist text-white/60 hover:text-white transition">Kihagyás</button>' +
+          '<button id="onb-finish" class="px-6 py-3 rounded-full bg-primary-blue text-white font-semibold hover:opacity-90 shadow-[0_0_15px_rgba(10,132,255,0.4)]">Belépés a vezérlőpultra</button>' +
+        '</div>' +
+      '</div>' +
+    '</div></div>';
+};
+Pages.onboardingInit = function() {
+  applyTheme();
+  const steps = [
+    { icon: "user", title: "Fiók létrehozva", body: "E-mail: " + (State.account ? State.account.email : ""), done: true },
+    { icon: "key", title: "API kulcs generálva", body: "Az első kulcsa készen áll a használatra.", done: true },
+    { icon: "building", title: "Tenant inicializálva", body: "Tenant ID: " + (State.account ? State.account.tenantId : ""), done: true },
+    { icon: "server", title: "Sandbox indítása", body: "Indítsa el a sandboxot a lekérdezésekhez.", done: false, action: "sandbox" }
+  ];
+  const cont = document.getElementById("onb-steps");
+  cont.innerHTML = steps.map((s, i) =>
+    '<div class="flex items-center gap-4 p-4 rounded-2xl glass border border-white/10">' +
+      '<div class="w-10 h-10 rounded-xl ' + (s.done ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" : "bg-primary-blue/20 text-primary-blue border border-primary-blue/30") + ' flex items-center justify-center">' + (s.done ? ICONS.check : ICONS[s.icon]) + '</div>' +
+      '<div class="flex-1"><div class="font-medium text-white">' + escapeHtml(s.title) + '</div><div class="text-sm text-white/60 font-geist">' + escapeHtml(s.body) + '</div></div>' +
+      (s.done ? badge("Kész", "green") : '<button data-onb-action="' + s.action + '" class="px-4 py-2 rounded-full bg-primary-blue text-white text-sm font-medium shadow-[0_0_10px_rgba(10,132,255,0.4)]">Indítás</button>') +
+    '</div>'
+  ).join("");
+  const startBtn = cont.querySelector("[data-onb-action='sandbox']");
+  if (startBtn) startBtn.addEventListener("click", () => {
+    const sb = State.sandbox; sb.status = "running"; sb.startedAt = Date.now(); State.sandbox = sb;
+    addLog("ops", "Sandbox elindítva az onboarding során", "");
+    toast("Sandbox elindítva", "success");
+    Pages.onboardingInit();
+  });
+  const finish = () => {
+    const s = State.settings; s.onboarded = true; State.settings = s;
+    pushNotification("Onboarding kész", "Sikeresen befejezte a beállítást.", "success");
+    location.hash = "#/dashboard"; render();
+  };
+  document.getElementById("onb-finish").addEventListener("click", finish);
+  document.getElementById("onb-skip").addEventListener("click", finish);
+};
+</script>
+
+<script>
+Pages.dashboard = function() {
+  const m = ensureMetrics();
+  const acc = State.account;
+  const sb = State.sandbox;
+  const keys = State.apikeys;
+  const activeKeys = keys.filter(k => k.status === "active").length;
+  const recs = State.db.records.length;
+  const maxReq = Math.max.apply(null, m.series.map(s => s.requests));
+  const bars = m.series.map(s => {
+    const h = Math.round((s.requests / maxReq) * 100);
+    return '<div class="flex-1 flex flex-col justify-end" title="' + s.h + ':00 — ' + s.requests + ' kérés"><div class="rounded-t bg-primary-blue/50 hover:bg-primary-blue shadow-[0_0_10px_rgba(10,132,255,0.3)] transition" style="height:' + h + '%"></div></div>';
+  }).join("");
+
+  return sectionHeader(t("welcome") + ", " + escapeHtml(acc ? acc.name : ""), "Áttekintés a tenant állapotáról és aktivitásáról.",
+      btnGhost(ICONS.refresh + t("refresh"), 'data-dash-refresh') + btnPrimary(ICONS.play + " Query futtatása", 'onclick="location.hash=\'#/query\'"')) +
+    '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">' +
+      statCard("Kérések ma", m.totalRequests.toLocaleString("hu-HU"), "+12% az előző naphoz", ICONS.chart) +
+      statCard("Átlag válaszidő", m.avgLatency + " ms", "p95: " + m.p95Latency + " ms", ICONS.clock, "text-emerald-400") +
+      statCard("Aktív API kulcsok", activeKeys + " / " + keys.length, "Összes kulcs", ICONS.key, "text-amber-400") +
+      statCard("Rekordok", recs.toLocaleString("hu-HU"), "documents kollekció", ICONS.database, "text-light-blue") +
+    '</div>' +
+    '<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">' +
+      '<div class="lg:col-span-2 glass-panel p-6">' +
+        '<div class="flex items-center justify-between mb-6"><h3 class="font-semibold text-lg text-white">Kérések (24 óra)</h3>' + badge("Valós idejű", "blue") + '</div>' +
+        '<div class="flex items-end gap-1 h-40">' + bars + '</div>' +
+        '<div class="flex justify-between text-xs font-geist text-white/60 mt-3"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>most</span></div>' +
+      '</div>' +
+      '<div class="glass-panel p-6">' +
+        '<h3 class="font-semibold text-lg mb-5 text-white">Sandbox állapot</h3>' +
+        '<div class="flex items-center gap-3 mb-5">' +
+          '<span class="w-3 h-3 rounded-full ' + (sb.status === "running" ? "bg-emerald-500 pulse-dot" : "bg-white/30") + '"></span>' +
+          '<span class="font-medium text-white">' + (sb.status === "running" ? "Fut" : "Leállítva") + '</span>' +
+        '</div>' +
+        resourceBar("CPU", m.cpu, "%") + resourceBar("RAM", m.ram, "%") + resourceBar("PID", Math.round(m.pids / 2), "%") +
+        '<a href="#/sandbox" class="mt-5 inline-flex items-center gap-2 text-sm font-medium text-primary-blue hover:underline">Sandbox kezelése →</a>' +
+      '</div>' +
+    '</div>' +
+    '<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">' +
+      '<div class="glass-panel p-6">' +
+        '<div class="flex items-center justify-between mb-4"><h3 class="font-semibold text-lg text-white">Tenant információ</h3><a href="#/tenant" class="text-sm text-primary-blue hover:underline">Részletek</a></div>' +
+        kvRow("Tenant ID", '<span class="font-mono text-sm">' + escapeHtml(acc.tenantId.slice(0, 18)) + '…</span>') +
+        kvRow("Régió", State.tenant ? State.tenant.region : "eu-central-1") +
+        kvRow("Állapot", badge("Aktív", "green")) +
+        kvRow("Csomag", State.billing.plan.toUpperCase()) +
+      '</div>' +
+      '<div class="glass-panel p-6">' +
+        '<div class="flex items-center justify-between mb-4"><h3 class="font-semibold text-lg text-white">Gyors műveletek</h3></div>' +
+        '<div class="grid grid-cols-2 gap-3">' +
+          quickAction("key", "API kulcsok", "apikeys") + quickAction("terminal", "Query", "query") +
+          quickAction("database", "Import", "data") + quickAction("book", "Dokumentáció", "docs") +
+        '</div>' +
+      '</div>' +
+    '</div>';
+};
+function resourceBar(label, pct, unit) {
+  const color = pct > 80 ? "bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]" : pct > 60 ? "bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]" : "bg-primary-blue shadow-[0_0_10px_rgba(10,132,255,0.5)]";
+  return '<div class="mb-4"><div class="flex justify-between text-sm font-geist mb-2"><span class="text-white/70">' + label + '</span><span class="font-medium text-white">' + pct + unit + '</span></div>' +
+    '<div class="h-2.5 rounded-full bg-black/50 overflow-hidden border border-white/10"><div class="h-full rounded-full ' + color + '" style="width:' + pct + '%"></div></div></div>';
+}
+function kvRow(k, v) {
+  return '<div class="flex items-center justify-between py-3 border-b border-white/10 last:border-0"><span class="text-sm font-geist text-white/60">' + escapeHtml(k) + '</span><span class="text-sm font-medium text-white">' + v + '</span></div>';
+}
+function quickAction(icon, label, route) {
+  return '<a href="#/' + route + '" class="flex flex-col items-center gap-3 p-5 rounded-2xl glass hover:bg-white/10 hover:border-primary-blue/30 transition text-center group"><span class="text-white/70 group-hover:text-primary-blue transition">' + ICONS[icon] + '</span><span class="text-sm font-geist font-medium text-white/90">' + escapeHtml(label) + '</span></a>';
+}
+Pages.dashboardInit = function() {
+  const r = document.querySelector("[data-dash-refresh]");
+  if (r) r.addEventListener("click", () => {
+    State.metrics = null; ensureMetrics();
+    toast("Adatok frissítve", "success"); render();
+  });
+};
+</script>
+
+<script>
+Pages.apikeys = function() {
+  const keys = State.apikeys;
+  const rows = keys.map(k => {
+    const masked = k.key.slice(0, 12) + "•".repeat(16) + k.key.slice(-4);
+    return '<div class="glass-panel p-5">' +
+      '<div class="flex flex-wrap items-start justify-between gap-4">' +
+        '<div class="min-w-0">' +
+          '<div class="flex items-center gap-3 mb-2"><h3 class="font-semibold text-white">' + escapeHtml(k.name) + '</h3>' + (k.status === "active" ? badge("Aktív", "green") : badge("Visszavonva", "red")) + badge(k.scope || "full", "blue") + '</div>' +
+          '<div class="flex items-center gap-2 mb-2"><code data-key-display="' + k.id + '" class="font-mono text-sm text-white/60 break-all">' + escapeHtml(masked) + '</code>' +
+            '<button data-toggle-key="' + k.id + '" class="text-xs px-2 py-1 rounded-full glass-button hover:bg-white/10 font-geist">Mutat</button>' +
+            '<button data-copy-key="' + k.id + '" class="p-1.5 rounded-full glass-button hover:bg-white/10">' + ICONS.copy + '</button></div>' +
+          '<div class="text-xs font-geist text-white/60">Létrehozva: ' + fmtDate(k.createdAt) + ' · Utolsó használat: ' + (k.lastUsed ? fmtRelative(k.lastUsed) : "soha") + '</div>' +
+        '</div>' +
+        '<div class="flex flex-wrap gap-2">' +
+          '<button data-regen-key="' + k.id + '" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-geist glass-button hover:bg-white/10">' + ICONS.refresh + 'Regenerálás</button>' +
+          (k.status === "active" ? '<button data-revoke-key="' + k.id + '" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-geist text-red-400 bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition">' + ICONS.x + 'Visszavonás</button>' : '') +
+          '<button data-delete-key="' + k.id + '" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-geist glass-button hover:bg-white/10">' + ICONS.trash + '</button>' +
+        '</div>' +
+      '</div></div>';
+  }).join("");
+
+  return sectionHeader(t("nav_apikeys"), "Hozzon létre, kezeljen és vonjon vissza API kulcsokat a tenanthoz.",
+      btnPrimary(ICONS.plus + " Új kulcs generálása", 'data-new-key')) +
+    '<div class="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex gap-3 text-sm font-geist text-amber-300">' + ICONS.warn + '<span><strong>Figyelem:</strong> A teljes API kulcs csak generáláskor jelenik meg. Tárolja biztonságosan — elvesztés esetén regenerálni kell.</span></div>' +
+    (keys.length ? '<div class="space-y-4">' + rows + '</div>' : emptyState(ICONS.key, "Nincs API kulcs", "Generáljon egy kulcsot az API eléréséhez.", btnPrimary(ICONS.plus + " Kulcs generálása", 'data-new-key-empty')));
+};
+Pages.apikeysInit = function() {
+  const create = () => {
+    const key = genApiKey();
+    const list = State.apikeys;
+    list.unshift({ id: uid("key"), name: "Kulcs " + (State.apikeys.length + 1), key: key, createdAt: Date.now(), status: "active", lastUsed: null, scope: "full" });
+    State.apikeys = list;
+    addLog("security", "Új API kulcs generálva", key.slice(0, 16) + "…");
+    pushNotification("Új API kulcs", "Egy új API kulcs lett létrehozva.", "info");
+    showKeyModal(key);
+    render();
+  };
+  const nk = document.querySelector("[data-new-key]"); if (nk) nk.addEventListener("click", create);
+  const nke = document.querySelector("[data-new-key-empty]"); if (nke) nke.addEventListener("click", create);
+
+  document.querySelectorAll("[data-toggle-key]").forEach(b => b.addEventListener("click", () => {
+    const id = b.getAttribute("data-toggle-key");
+    const k = State.apikeys.find(x => x.id === id);
+    const disp = document.querySelector('[data-key-display="' + id + '"]');
+    if (b.textContent === "Mutat") { disp.textContent = k.key; b.textContent = "Elrejt"; }
+    else { disp.textContent = k.key.slice(0, 12) + "•".repeat(16) + k.key.slice(-4); b.textContent = "Mutat"; }
+  }));
+  document.querySelectorAll("[data-copy-key]").forEach(b => b.addEventListener("click", () => {
+    const k = State.apikeys.find(x => x.id === b.getAttribute("data-copy-key"));
+    copyText(k.key, "API kulcs");
+  }));
+  document.querySelectorAll("[data-regen-key]").forEach(b => b.addEventListener("click", () => {
+    const id = b.getAttribute("data-regen-key");
+    confirmDialog("API kulcs regenerálása", "A régi kulcs azonnal érvénytelenné válik. Folytatja?", () => {
+      const newKey = genApiKey();
+      const list = State.apikeys; const k = list.find(x => x.id === id);
+      if (k) { k.key = newKey; k.createdAt = Date.now(); k.status = "active"; k.lastUsed = null; }
+      State.apikeys = list;
+      addLog("security", "API kulcs regenerálva", newKey.slice(0, 16) + "…");
+      showKeyModal(newKey); render();
+    }, { danger: true, okLabel: "Regenerálás" });
+  }));
+  document.querySelectorAll("[data-revoke-key]").forEach(b => b.addEventListener("click", () => {
+    const id = b.getAttribute("data-revoke-key");
+    confirmDialog("API kulcs visszavonása", "A kulcs visszavonása után az nem használható többé.", () => {
+      const list = State.apikeys; const k = list.find(x => x.id === id); if (k) k.status = "revoked";
+      State.apikeys = list; addLog("security", "API kulcs visszavonva", id);
+      toast("Kulcs visszavonva", "success"); render();
+    }, { danger: true, okLabel: "Visszavonás" });
+  }));
+  document.querySelectorAll("[data-delete-key]").forEach(b => b.addEventListener("click", () => {
+    const id = b.getAttribute("data-delete-key");
+    confirmDialog("Kulcs törlése", "Véglegesen törli ezt a kulcsbejegyzést?", () => {
+      State.apikeys = State.apikeys.filter(x => x.id !== id); toast("Kulcs törölve", "success"); render();
+    }, { danger: true, okLabel: t("delete") });
+  }));
+};
+function showKeyModal(key) {
+  modal("API kulcs létrehozva", 
+    '<div class="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex gap-3 text-sm font-geist text-amber-300 mb-5">' + ICONS.warn + '<span>Másolja ki most! Ez a teljes kulcs többé nem jelenik meg.</span></div>' +
+    '<div class="p-4 rounded-xl bg-black/50 border border-white/10 text-white/90 font-mono text-sm break-all mb-4">' + escapeHtml(key) + '</div>' +
+    '<button id="modal-copy-key" class="w-full py-3 rounded-full bg-primary-blue text-white font-semibold hover:opacity-90 inline-flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(10,132,255,0.4)]">' + ICONS.copy + 'Másolás a vágólapra</button>',
+    { onMount(wrap) { wrap.querySelector("#modal-copy-key").addEventListener("click", () => copyText(key, "API kulcs")); } });
+}
+</script>
+
+<script>
+Pages.tenant = function() {
+  const acc = State.account; const tn = State.tenant || { id: acc.tenantId, name: "default", status: "active", region: "eu-central-1", createdAt: acc.createdAt, activity: Date.now() };
+  return sectionHeader(t("nav_tenant"), "Tenant azonosító, állapot és aktivitás kezelése.",
+      btnGhost(ICONS.copy + " Tenant ID másolása", 'data-copy-tenant')) +
+    '<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">' +
+      '<div class="lg:col-span-2 glass-panel p-6">' +
+        '<h3 class="font-semibold text-lg mb-5 text-white">Tenant adatok</h3>' +
+        '<div class="flex items-center gap-2 mb-4 p-3 rounded-xl glass"><code class="font-mono text-sm break-all flex-1 text-white/90">' + escapeHtml(tn.id) + '</code>' + copyButton(tn.id, "Tenant ID") + '</div>' +
+        kvRow("Tenant név", escapeHtml(tn.name)) +
+        kvRow("Régió", escapeHtml(tn.region)) +
+        kvRow("Állapot", badge(tn.status === "active" ? "Aktív" : "Felfüggesztve", tn.status === "active" ? "green" : "amber")) +
+        kvRow("Létrehozva", fmtDate(tn.createdAt)) +
+        kvRow("Utolsó aktivitás", fmtRelative(tn.activity)) +
+      '</div>' +
+      '<div class="glass-panel p-6">' +
+        '<h3 class="font-semibold text-lg mb-5 text-white">Tenant aktivitás</h3>' +
+        '<div class="space-y-3">' +
+          activityRow("Lekérdezések", State.history.length + " futtatás") +
+          activityRow("Rekordok", State.db.records.length + " dokumentum") +
+          activityRow("API hívások (24h)", ensureMetrics().series.reduce((a, s) => a + s.requests, 0).toLocaleString("hu-HU")) +
+          activityRow("Naplóbejegyzések", State.logs.length + " esemény") +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="glass-panel p-6 border-red-500/30">' +
+      '<h3 class="font-semibold text-lg mb-2 text-red-400">Veszélyzóna</h3>' +
+      '<p class="text-white/60 text-sm mb-5">A fiók vagy tenant törlése visszafordíthatatlan. Minden adat, kulcs és sandbox véglegesen törlődik.</p>' +
+      '<div class="flex flex-wrap gap-3">' +
+        '<button data-delete-tenant class="inline-flex items-center gap-2 px-6 py-3 rounded-full text-sm font-medium text-red-400 bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition">' + ICONS.trash + 'Tenant törlése</button>' +
+        '<button data-delete-account class="inline-flex items-center gap-2 px-6 py-3 rounded-full text-sm font-medium text-white bg-red-500 hover:bg-red-600 shadow-[0_0_15px_rgba(239,68,68,0.4)]">' + ICONS.trash + 'Fiók törlése</button>' +
+      '</div>' +
+    '</div>';
+};
+function activityRow(k, v) {
+  return '<div class="flex items-center justify-between p-3 rounded-xl glass"><span class="text-sm font-geist text-white/60">' + escapeHtml(k) + '</span><span class="font-medium text-sm text-white">' + escapeHtml(v) + '</span></div>';
+}
+Pages.tenantInit = function() {
+  const ct = document.querySelector("[data-copy-tenant]"); if (ct) ct.addEventListener("click", () => copyText(State.account.tenantId, "Tenant ID"));
+  const dt = document.querySelector("[data-delete-tenant]"); if (dt) dt.addEventListener("click", () => {
+    confirmDialog("Tenant törlés megerősítése", "Írja be a tenant nevét a törlés megerősítéséhez. Ez az összes adatot törli.", () => {
+      State.db = { records: [] }; State.history = []; State.saved = [];
+      addLog("security", "Tenant törölve", State.tenant ? State.tenant.id : "");
+      toast("Tenant tartalom törölve", "success"); render();
+    }, { danger: true, okLabel: "Tenant törlése", requireText: (State.tenant ? State.tenant.name : "default") });
+  });
+  const da = document.querySelector("[data-delete-account]"); if (da) da.addEventListener("click", () => {
+    confirmDialog("Fiók törlés megerősítése", "Írja be: TÖRLÉS — ez véglegesen törli a fiókját, minden kulcsot és adatot.", () => {
+      ["agdb_account", "agdb_session", "agdb_apikeys", "agdb_tenant", "agdb_sandbox", "agdb_db", "agdb_history", "agdb_saved", "agdb_logs", "agdb_webhooks", "agdb_notifications", "agdb_billing", "agdb_metrics"].forEach(Store.remove);
+      toast("Fiók törölve", "success"); location.hash = "#/"; render();
+    }, { danger: true, okLabel: "Fiók végleges törlése", requireText: "TÖRLÉS" });
+  });
+};
+</script>
+
+<script>
+Pages.sandbox = function() {
+  const sb = State.sandbox; const m = ensureMetrics();
+  const running = sb.status === "running";
+  return sectionHeader(t("nav_sandbox"), "Indítsa, állítsa le vagy indítsa újra a tenant izolált sandboxát.") +
+    '<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">' +
+      '<div class="lg:col-span-2 glass-panel p-6">' +
+        '<div class="flex items-center justify-between mb-6">' +
+          '<div class="flex items-center gap-3"><span class="w-3.5 h-3.5 rounded-full ' + (running ? "bg-emerald-500 pulse-dot" : "bg-white/30") + '"></span><h3 class="font-semibold text-lg text-white">' + (running ? "Sandbox fut" : "Sandbox leállítva") + '</h3></div>' +
+          (running ? badge("Egészséges", "green") : badge("Inaktív", "gray")) +
+        '</div>' +
+        '<div class="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">' +
+          miniStat("Üzemidő", running ? formatUptime(Date.now() - (sb.startedAt || Date.now())) : "—") +
+          miniStat("Újraindítások", String(sb.restarts || 0)) +
+          miniStat("Régió", State.tenant ? State.tenant.region : "eu-central-1") +
+        '</div>' +
+        '<div class="flex flex-wrap gap-3">' +
+          (running ? '' : '<button data-sb-start class="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-emerald-500 text-white text-sm font-medium hover:opacity-90 shadow-[0_0_15px_rgba(16,185,129,0.4)]">' + ICONS.play + 'Indítás</button>') +
+          (running ? '<button data-sb-stop class="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-red-500 text-white text-sm font-medium hover:opacity-90 shadow-[0_0_15px_rgba(239,68,68,0.4)]">' + ICONS.stop + 'Leállítás</button>' : '') +
+          '<button data-sb-restart class="inline-flex items-center gap-2 px-6 py-3 rounded-full glass-button text-sm font-medium hover:bg-white/10">' + ICONS.refresh + 'Újraindítás</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="glass-panel p-6">' +
+        '<h3 class="font-semibold text-lg mb-5 text-white">Erőforrások</h3>' +
+        resourceBar("CPU", m.cpu, "%") +
+        resourceBar("RAM", m.ram, "%") +
+        resourceBar("PID", Math.round(m.pids / 2), "%") +
+      '</div>' +
+    '</div>';
+};
+function miniStat(label, value) {
+  return '<div class="glass p-4 rounded-2xl"><div class="text-xs font-geist text-white/60">' + escapeHtml(label) + '</div><div class="text-2xl font-semibold text-white mt-1">' + escapeHtml(value) + '</div></div>';
+}
+Pages.sandboxInit = function() {
+  const startBtn = document.querySelector("[data-sb-start]");
+  if (startBtn) startBtn.addEventListener("click", () => {
+    const sb = State.sandbox; sb.status = "running"; sb.startedAt = Date.now(); State.sandbox = sb;
+    toast("Sandbox elindítva", "success"); render();
+  });
+  const stopBtn = document.querySelector("[data-sb-stop]");
+  if (stopBtn) stopBtn.addEventListener("click", () => {
+    const sb = State.sandbox; sb.status = "stopped"; State.sandbox = sb;
+    toast("Sandbox leállítva", "success"); render();
+  });
+  const restartBtn = document.querySelector("[data-sb-restart]");
+  if (restartBtn) restartBtn.addEventListener("click", () => {
+    const sb = State.sandbox; sb.status = "running"; sb.restarts = (sb.restarts || 0) + 1; sb.startedAt = Date.now(); State.sandbox = sb;
+    toast("Sandbox újraindítva", "success"); render();
+  });
+};
+</script>
+
+<script>
+let currentQueryObj = null;
+Pages.query = function() {
+  return sectionHeader(t("nav_query"), "Query szerkesztő JSON alapú lekérdezésekhez.") +
+    '<div class="glass-panel p-6">' +
+      '<div class="flex justify-between items-center mb-4"><span class="font-medium">Query JSON</span>' + 
+        '<div class="flex gap-3">' +
+          btnGhost(ICONS.refresh + " Alaphelyzet", 'id="query-reset"') +
+          btnPrimary(ICONS.play + " Futtatás", 'id="query-run"') +
+        '</div></div>' +
+      '<textarea id="query-editor" class="w-full h-80 font-mono text-sm p-4 rounded-2xl glass-input" spellcheck="false">{\n  "from": "documents",\n  "search": "vector",\n  "topK": 5\n}</textarea>' +
+      '<div id="query-result" class="mt-6"></div>' +
+    '</div>';
+};
+Pages.queryInit = function() {
+  const editor = document.getElementById("query-editor");
+  const resultArea = document.getElementById("query-result");
+  const runBtn = document.getElementById("query-run");
+  const resetBtn = document.getElementById("query-reset");
+  if (currentQueryObj) {
+    editor.value = JSON.stringify(currentQueryObj, null, 2);
+    currentQueryObj = null;
+  }
+  runBtn.addEventListener("click", () => {
+    let q;
+    try {
+      q = JSON.parse(editor.value);
+    } catch (e) {
+      resultArea.innerHTML = '<div class="p-4 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-400">JSON hiba: ' + escapeHtml(e.message) + '</div>';
+      return;
+    }
+    resultArea.innerHTML = loadingBlock("Lekérdezés futtatása...");
+    setTimeout(() => {
+      const res = runQuery(q);
+      addLog("query", "Query futtatva", "rows: " + res.rows.length);
+      resultArea.innerHTML = '<div class="text-sm font-geist text-white/60 mb-3">' + res.rows.length + ' találat</div>' +
+        '<pre class="p-4 rounded-2xl bg-black/50 border border-white/10 text-white/90 text-xs overflow-auto max-h-96"><code>' + escapeHtml(JSON.stringify(res.rows, null, 2)) + '</code></pre>';
+    }, 420);
+  });
+  resetBtn.addEventListener("click", () => {
+    editor.value = '{\n  "from": "documents",\n  "limit": 10\n}';
+    resultArea.innerHTML = "";
+  });
+};
+</script>
+
+<script>
+Pages.history = function() {
+  const h = State.history;
+  if (!h.length) return sectionHeader(t("nav_history"), "Korábbi lekérdezések.") + emptyState(ICONS.clock, "Nincs előzmény", "Futtatott lekérdezések itt jelennek meg.", "");
+  return sectionHeader(t("nav_history"), "Korábbi lekérdezések.") +
+    '<div class="space-y-4">' + h.map((item, idx) => 
+      '<div class="glass-panel p-5 flex items-start gap-4">' +
+        '<div class="shrink-0">' + badge("QUERY", "blue") + '</div>' +
+        '<div class="flex-1 min-w-0">' +
+          '<div class="font-mono text-sm text-white/80 break-all">' + escapeHtml(JSON.stringify(item.query || {})) + '</div>' +
+          '<div class="text-xs font-geist text-white/50 mt-2">' + fmtRelative(item.ts) + '</div>' +
+        '</div>' +
+        '<button data-rerun=\'' + escapeHtml(JSON.stringify(item.query)) + '\' class="shrink-0 px-4 py-2 rounded-full glass-button text-sm">' + ICONS.play + '</button>' +
+      '</div>'
+    ).join("") + '</div>' +
+    '<button data-clear-history class="mt-6 px-6 py-3 rounded-full text-red-400 hover:bg-red-500/10 transition text-sm font-medium">Előzmények törlése</button>';
+};
+Pages.historyInit = function() {
+  const c = document.querySelector("[data-clear-history]");
+  if (c) c.addEventListener("click", () => confirmDialog("Előzmények törlése", "Az összes lekérdezési előzmény törlődik.", () => { State.history = []; toast("Előzmények törölve", "success"); render(); }, { danger: true }));
+  document.querySelectorAll("[data-rerun]").forEach(b => b.addEventListener("click", () => {
+    currentQueryObj = JSON.parse(b.getAttribute("data-rerun"));
+    location.hash = "#/query"; toast("Query betöltve a szerkesztőbe", "info");
+  }));
+};
+
+Pages.saved = function() {
+  const s = State.saved;
+  if (!s.length) return sectionHeader(t("nav_saved"), "Mentett lekérdezések újrafelhasználáshoz.") + emptyState(ICONS.bookmark, "Nincs mentett query", "Mentsen el egy lekérdezést a szerkesztőből.", btnPrimary(ICONS.terminal + " Szerkesztő", 'onclick="location.hash=\'#/query\'"'));
+  return sectionHeader(t("nav_saved"), "Mentett lekérdezések újrafelhasználáshoz.") +
+    '<div class="grid grid-cols-1 md:grid-cols-2 gap-5">' + s.map(item =>
+      '<div class="glass-panel p-6">' +
+        '<div class="flex items-center justify-between mb-4"><h3 class="font-semibold text-white">' + escapeHtml(item.name) + '</h3>' + badge(fmtRelative(item.createdAt), "gray") + '</div>' +
+        '<pre class="p-4 rounded-xl bg-black/50 border border-white/10 text-white/90 text-xs overflow-x-auto mb-4 max-h-32 overflow-y-auto"><code>' + escapeHtml(JSON.stringify(item.query, null, 2)) + '</code></pre>' +
+        '<div class="flex gap-3"><button data-load-saved=\'' + escapeHtml(JSON.stringify(item.query)) + '\' class="flex-1 py-3 rounded-full bg-primary-blue text-white text-sm font-medium inline-flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(10,132,255,0.4)]">' + ICONS.play + 'Betöltés</button>' +
+          '<button data-del-saved="' + item.id + '" class="px-4 py-3 rounded-full glass-button text-red-400 hover:bg-red-500/20 transition">' + ICONS.trash + '</button></div>' +
+      '</div>').join("") + '</div>';
+};
+Pages.savedInit = function() {
+  document.querySelectorAll("[data-load-saved]").forEach(b => b.addEventListener("click", () => {
+    currentQueryObj = JSON.parse(b.getAttribute("data-load-saved")); location.hash = "#/query"; toast("Query betöltve", "info");
+  }));
+  document.querySelectorAll("[data-del-saved]").forEach(b => b.addEventListener("click", () => {
+    const id = b.getAttribute("data-del-saved");
+    State.saved = State.saved.filter(x => x.id !== id); toast("Mentett query törölve", "success"); render();
+  }));
+};
+
+const TEMPLATES = [
+  { name: "Összes dokumentum", desc: "Egyszerű lekérdezés az összes rekordra.", query: { from: "documents", limit: 20 } },
+  { name: "Kategória szűrés", desc: "Szűrés mező egyenlőség alapján.", query: { from: "documents", where: [{ field: "category", op: "==", value: "engineering" }], limit: 10 } },
+  { name: "Top K vektor keresés", desc: "Hibrid keresés a legrelevánsabb találatokért.", query: { from: "documents", search: "vector index", topK: 5 } },
+  { name: "Rendezett pontszám szerint", desc: "Rendezés csökkenő pontszám alapján.", query: { from: "documents", orderBy: { field: "score", dir: "desc" }, limit: 5 } },
+  { name: "Teljes szöveges keresés", desc: "BM25 alapú szöveges keresés.", query: { from: "documents", search: "authentication bearer", limit: 10 } },
+  { name: "Tartomány szűrés", desc: "Numerikus tartomány feltétel.", query: { from: "documents", where: [{ field: "score", op: ">=", value: 0.9 }], orderBy: { field: "score", dir: "desc" } } }
+];
+Pages.templates = function() {
+  return sectionHeader(t("nav_templates"), "Előre elkészített query sablonok gyors indításhoz.") +
+    '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">' + TEMPLATES.map((tp, i) =>
+      '<div class="glass-panel p-6 flex flex-col hover:shadow-[0_8px_32px_rgba(10,132,255,0.15)] hover:border-primary-blue/30 transition duration-300">' +
+        '<div class="w-12 h-12 rounded-2xl bg-primary-blue/20 text-primary-blue flex items-center justify-center mb-5 border border-primary-blue/30 shadow-[inset_0_0_10px_rgba(10,132,255,0.2)]">' + ICONS.template + '</div>' +
+        '<h3 class="font-semibold text-white mb-2">' + escapeHtml(tp.name) + '</h3>' +
+        '<p class="text-sm text-white/60 font-geist mb-6 flex-1">' + escapeHtml(tp.desc) + '</p>' +
+        '<button data-use-template="' + i + '" class="py-3 rounded-full bg-primary-blue text-white text-sm font-medium inline-flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(10,132,255,0.4)]">' + ICONS.play + 'Használat</button>' +
+      '</div>').join("") + '</div>';
+};
+Pages.templatesInit = function() {
+  document.querySelectorAll("[data-use-template]").forEach(b => b.addEventListener("click", () => {
+    currentQueryObj = JSON.parse(JSON.stringify(TEMPLATES[parseInt(b.getAttribute("data-use-template"))].query));
+    if (!currentQueryObj.where) currentQueryObj.where = [];
+    location.hash = "#/query"; toast("Sablon betöltve", "info");
+  }));
+};
+</script>
+
+<script>
+let searchResults = null;
+Pages.search = function() {
+  return sectionHeader(t("nav_search"), "Teljes szöveges és hibrid vektor keresés a kollekcióban.") +
+    '<div class="glass-panel p-6 mb-6">' +
+      '<div class="flex flex-col sm:flex-row gap-4">' +
+        '<div class="flex-1 relative"><span class="absolute left-4 top-1/2 -translate-y-1/2 opacity-50 text-white">' + ICONS.search + '</span>' +
+          '<input id="fts-input" class="w-full pl-12 pr-4 py-4 rounded-2xl glass-input font-geist focus:outline-none focus:ring-2 focus:ring-primary-blue/40" placeholder="Keresés a dokumentumokban..."></div>' +
+        '<div class="flex items-center gap-3"><label class="text-sm font-geist text-white/60">Top K</label><input id="fts-topk" type="number" min="1" value="5" class="w-24 px-4 py-4 rounded-2xl glass-input font-geist"></div>' +
+        '<button id="fts-go" class="px-8 py-4 rounded-full bg-primary-blue text-white font-medium inline-flex items-center gap-2 shadow-[0_0_15px_rgba(10,132,255,0.4)]">' + ICONS.search + 'Keresés</button>' +
+      '</div>' +
+    '</div>' +
+    '<div id="fts-results">' + emptyState(ICONS.search, "Kezdje a keresést", "Adjon meg kulcsszavakat a hibrid keresés indításához.", "") + '</div>';
+};
+Pages.searchInit = function() {
+  const renderSearchResults = (rows, term) => {
+    const cont = document.getElementById("fts-results");
+    if (!rows.length) { cont.innerHTML = emptyState(ICONS.search, "Nincs találat", "Próbáljon más kulcsszavakat.", ""); return; }
+    cont.innerHTML = '<div class="text-sm font-geist text-white/60 mb-4">' + rows.length + ' találat erre: "' + escapeHtml(term) + '"</div>' +
+      '<div class="space-y-4">' + rows.map(r =>
+        '<div class="glass-panel p-6 hover:shadow-[0_8px_32px_rgba(10,132,255,0.15)] hover:border-primary-blue/30 transition cursor-pointer" data-srec=\'' + escapeHtml(JSON.stringify(r)) + '\'>' +
+          '<div class="flex items-center justify-between mb-3"><h3 class="font-semibold text-primary-blue">' + escapeHtml(r.title || r.id || "") + '</h3>' + badge("score " + (r.score || 0), "green") + '</div>' +
+          '<p class="text-sm text-white/60 font-geist mb-4">' + escapeHtml(r.content || "") + '</p>' +
+          '<div class="flex flex-wrap gap-2">' + (r.tags || []).map(tag => badge(tag, "blue")).join("") + '<span class="ml-auto text-xs font-geist text-white/40 font-mono">' + escapeHtml(String(r.id || "")) + '</span></div>' +
+        '</div>').join("") + '</div>';
+    cont.querySelectorAll("[data-srec]").forEach(el => el.addEventListener("click", () => {
+      const r = JSON.parse(el.getAttribute("data-srec"));
+      modal("Rekord részletek — " + (r.title || r.id), '<pre class="p-4 rounded-xl bg-black/50 border border-white/10 text-white/90 text-sm overflow-x-auto"><code>' + escapeHtml(JSON.stringify(r, null, 2)) + '</code></pre>');
+    }));
+  };
+  const go = () => {
+    const term = document.getElementById("fts-input").value.trim();
+    const topK = parseInt(document.getElementById("fts-topk").value) || 5;
+    const cont = document.getElementById("fts-results");
+    if (!term) { toast("Adjon meg keresési kifejezést", "warning"); return; }
+    cont.innerHTML = loadingBlock("Keresés...");
+    const res = runQuery({ from: "documents", search: term, topK: topK });
+    addLog("query", "Teljes szöveges keresés: " + term, "rows: " + res.rows.length);
+    renderSearchResults(res.rows, term);
+  };
+  document.getElementById("fts-go").addEventListener("click", go);
+  document.getElementById("fts-input").addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+};
+
+Pages.data = function() {
+  return sectionHeader(t("nav_data"), "Adatok importálása és exportálása JSON formátumban.") +
+    '<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">' +
+      '<div class="glass-panel p-6">' +
+        '<div class="flex items-center gap-3 mb-5"><span class="w-12 h-12 rounded-2xl bg-primary-blue/20 text-primary-blue flex items-center justify-center border border-primary-blue/30 shadow-[inset_0_0_10px_rgba(10,132,255,0.2)]">' + ICONS.upload + '</span><h3 class="font-semibold text-lg text-white">Adat import</h3></div>' +
+        '<p class="text-sm text-white/60 font-geist mb-5">Illessze be a JSON tömböt vagy töltsön fel egy fájlt. Minden objektum egy dokumentum.</p>' +
+        '<textarea id="import-text" rows="10" class="' + inputCls() + ' font-mono resize-y mb-4" placeholder=\'[{"id":"doc_x","title":"...","content":"..."}]\'></textarea>' +
+        '<div class="flex flex-wrap gap-3">' +
+          '<label class="inline-flex items-center gap-2 px-6 py-3 rounded-full glass-button text-sm font-medium cursor-pointer hover:bg-white/10 transition">' + ICONS.upload + 'Fájl<input id="import-file" type="file" accept=".json,.ndjson,.txt" class="hidden"></label>' +
+          '<button id="import-mode" class="px-6 py-3 rounded-full glass-button text-sm font-medium hover:bg-white/10 transition">Mód: hozzáfűzés</button>' +
+          '<button id="import-go" class="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-primary-blue text-white text-sm font-medium shadow-[0_0_15px_rgba(10,132,255,0.4)]">' + ICONS.upload + 'Importálás</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="glass-panel p-6">' +
+        '<div class="flex items-center gap-3 mb-5"><span class="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30 shadow-[inset_0_0_10px_rgba(16,185,129,0.2)]">' + ICONS.download + '</span><h3 class="font-semibold text-lg text-white">Adat export</h3></div>' +
+        '<p class="text-sm text-white/60 font-geist mb-5">A jelenlegi kollekció ' + State.db.records.length + ' rekordot tartalmaz.</p>' +
+        '<div class="flex flex-wrap gap-3 mb-5">' +
+          '<button id="export-json" class="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-primary-blue text-white text-sm font-medium shadow-[0_0_15px_rgba(10,132,255,0.4)]">' + ICONS.download + 'Export JSON</button>' +
+          '<button id="export-csv" class="inline-flex items-center gap-2 px-6 py-3 rounded-full glass-button text-sm font-medium hover:bg-white/10 transition">' + ICONS.download + 'Export CSV</button>' +
+        '</div>' +
+        '<pre class="p-4 rounded-xl bg-black/50 border border-white/10 text-white/90 text-xs overflow-x-auto max-h-60 overflow-y-auto"><code>' + escapeHtml(JSON.stringify(State.db.records.slice(0, 2), null, 2)) + '</code></pre>' +
+      '</div>' +
+    '</div>';
+};
+Pages.dataInit = function() {
+  let mode = "append";
+  const mb = document.getElementById("import-mode");
+  mb.addEventListener("click", () => { mode = mode === "append" ? "replace" : "append"; mb.textContent = "Mód: " + (mode === "append" ? "hozzáfűzés" : "csere"); });
+  document.getElementById("import-file").addEventListener("change", e => {
+    const f = e.target.files[0]; if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => { document.getElementById("import-text").value = reader.result; toast("Fájl betöltve", "info"); };
+    reader.readAsText(f);
+  });
+  document.getElementById("import-go").addEventListener("click", () => {
+    const txt = document.getElementById("import-text").value.trim();
+    if (!txt) { toast("Nincs importálandó adat", "warning"); return; }
+    let data;
+    try { data = JSON.parse(txt); }
+    catch (e) {
+      try { data = txt.split("\n").filter(l => l.trim()).map(l => JSON.parse(l)); }
+      catch (e2) { toast("Érvénytelen JSON: " + e.message, "error"); return; }
+    }
+    if (!Array.isArray(data)) data = [data];
+    const db = State.db;
+    data.forEach(d => { if (!d.id) d.id = uid("doc"); });
+    db.records = mode === "replace" ? data : db.records.concat(data);
+    State.db = db;
+    addLog("data", "Adat import (" + mode + ")", data.length + " rekord");
+    toast(data.length + " rekord importálva", "success"); render();
+  });
+  const download = (content, filename, type) => {
+    const blob = new Blob([content], { type: type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url); toast("Export elkészült: " + filename, "success");
+    addLog("data", "Adat export", filename);
+  };
+  document.getElementById("export-json").addEventListener("click", () => download(JSON.stringify(State.db.records, null, 2), "agdb-export.json", "application/json"));
+  document.getElementById("export-csv").addEventListener("click", () => {
+    const recs = State.db.records; if (!recs.length) { toast("Nincs exportálható adat", "warning"); return; }
+    const cols = Array.from(recs.reduce((s, r) => { Object.keys(r).forEach(k => s.add(k)); return s; }, new Set()));
+    const csv = [cols.join(",")].concat(recs.map(r => cols.map(c => { const v = r[c]; const s = typeof v === "object" ? JSON.stringify(v) : (v !== undefined ? String(v) : ""); return '"' + s.replace(/"/g, '""') + '"'; }).join(","))).join("\n");
+    download(csv, "agdb-export.csv", "text/csv");
+  });
+};
+</script>
+
+<script>
+Pages.analytics = function() {
+  const m = ensureMetrics();
+  const totalReq = m.series.reduce((a, s) => a + s.requests, 0);
+  const totalErr = m.series.reduce((a, s) => a + s.errors, 0);
+  const maxLat = Math.max.apply(null, m.series.map(s => s.latency));
+  const latLine = m.series.map((s, i) => { const x = (i / (m.series.length - 1)) * 100; const y = 100 - (s.latency / maxLat) * 90; return x + "," + y; }).join(" ");
+  return sectionHeader(t("nav_analytics"), "API használati analitika, válaszidő és hibaarány.") +
+    '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">' +
+      statCard("Kérések (24h)", totalReq.toLocaleString("hu-HU"), "Összes hívás", ICONS.chart) +
+      statCard("Átlag válaszidő", m.avgLatency + " ms", "p95: " + m.p95Latency + " ms", ICONS.clock, "text-emerald-400") +
+      statCard("Hibaarány", m.errorRate + "%", totalErr + " hiba", ICONS.warn, "text-red-400") +
+      statCard("Rate limit", "1000 / perc", State.billing.plan.toUpperCase() + " csomag", ICONS.shield, "text-amber-400") +
+    '</div>' +
+    '<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">' +
+      '<div class="glass-panel p-6">' +
+        '<h3 class="font-semibold text-lg mb-5 text-white">Válaszidő trend (24h)</h3>' +
+        '<svg viewBox="0 0 100 100" preserveAspectRatio="none" class="w-full h-40"><polyline fill="none" stroke="#0a84ff" stroke-width="1.5" points="' + latLine + '"/><polyline fill="rgba(10,132,255,0.1)" stroke="none" points="0,100 ' + latLine + ' 100,100"/></svg>' +
+        '<div class="flex justify-between text-xs font-geist text-white/60 mt-3"><span>p50: ' + m.avgLatency + 'ms</span><span>p95: ' + m.p95Latency + 'ms</span><span>p99: ' + m.p99Latency + 'ms</span></div>' +
+      '</div>' +
+      '<div class="glass-panel p-6">' +
+        '<h3 class="font-semibold text-lg mb-5 text-white">Végpontok szerinti megoszlás</h3>' +
+        '<div class="space-y-4">' +
+          endpointBar("/query", 62) + endpointBar("/search", 24) + endpointBar("/databases", 9) + endpointBar("/health", 5) +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="glass-panel p-6">' +
+      '<h3 class="font-semibold text-lg mb-5 text-white">Használati limitek</h3>' +
+      '<div class="grid grid-cols-1 sm:grid-cols-3 gap-5">' +
+        usageLimit("API hívások / hó", totalReq * 28, 1000000) +
+        usageLimit("Tárhely (MB)", m.storageUsedMb, m.storageQuotaMb) +
+        usageLimit("Egyidejű kapcsolat", 12, 50) +
+      '</div>' +
+    '</div>';
+};
+function endpointBar(name, pct) {
+  return '<div><div class="flex justify-between text-sm font-geist mb-2"><span class="font-mono text-white/90">' + escapeHtml(name) + '</span><span class="text-white/60">' + pct + '%</span></div><div class="h-2.5 rounded-full bg-black/50 overflow-hidden border border-white/10"><div class="h-full rounded-full bg-primary-blue shadow-[0_0_10px_rgba(10,132,255,0.5)]" style="width:' + pct + '%"></div></div></div>';
+}
+function usageLimit(label, used, max) {
+  const pct = Math.min(100, Math.round((used / max) * 100));
+  return '<div class="p-5 rounded-2xl glass"><div class="text-sm font-geist text-white/60 mb-2">' + escapeHtml(label) + '</div><div class="font-semibold text-white mb-3">' + used.toLocaleString("hu-HU") + ' / ' + max.toLocaleString("hu-HU") + '</div><div class="h-2.5 rounded-full bg-black/50 overflow-hidden border border-white/10"><div class="h-full rounded-full ' + (pct > 80 ? "bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]" : "bg-primary-blue shadow-[0_0_10px_rgba(10,132,255,0.5)]") + '" style="width:' + pct + '%"></div></div></div>';
+}
+
+let auditFilter = "all", auditSearch = "", auditPage = 1, auditSort = "desc";
+Pages.audit = function() {
+  return sectionHeader(t("nav_audit"), "Audit naplók, hozzáférési naplók és biztonsági események.") +
+    '<div class="glass-panel p-5 mb-6">' +
+      '<div class="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center">' +
+        '<div class="flex-1 relative"><span class="absolute left-4 top-1/2 -translate-y-1/2 opacity-50 text-white">' + ICONS.search + '</span><input id="audit-search" class="w-full pl-12 pr-4 py-3 rounded-2xl glass-input font-geist text-sm" placeholder="Keresés a naplókban..." value="' + escapeHtml(auditSearch) + '"></div>' +
+        '<select id="audit-filter" class="px-5 py-3 rounded-2xl glass-input font-geist text-sm">' +
+          [["all", "Minden típus"], ["auth", "Hitelesítés"], ["security", "Biztonság"], ["access", "Hozzáférés"], ["query", "Lekérdezés"], ["data", "Adat"], ["ops", "Művelet"]].map(o => '<option value="' + o[0] + '" class="bg-black text-white"' + (auditFilter === o[0] ? " selected" : "") + '>' + o[1] + '</option>').join("") + '</select>' +
+        '<select id="audit-sort" class="px-5 py-3 rounded-2xl glass-input font-geist text-sm">' +
+          '<option value="desc" class="bg-black text-white"' + (auditSort === "desc" ? " selected" : "") + '>Legújabb elöl</option><option value="asc" class="bg-black text-white"' + (auditSort === "asc" ? " selected" : "") + '>Legrégebbi elöl</option></select>' +
+      '</div>' +
+    '</div>' +
+    '<div id="audit-list"></div>';
+};
+Pages.auditInit = function() {
+  const renderList = () => {
+    let logs = State.logs.slice();
+    if (auditFilter !== "all") logs = logs.filter(l => l.type === auditFilter);
+    if (auditSearch.trim()) { const q = auditSearch.toLowerCase(); logs = logs.filter(l => (l.message + " " + l.meta).toLowerCase().includes(q)); }
+    logs.sort((a, b) => auditSort === "desc" ? b.ts - a.ts : a.ts - b.ts);
+    const perPage = 10; const pages = Math.max(1, Math.ceil(logs.length / perPage));
+    if (auditPage > pages) auditPage = pages;
+    const slice = logs.slice((auditPage - 1) * perPage, auditPage * perPage);
+    const typeColor = { auth: "blue", security: "red", access: "gray", query: "green", data: "amber", ops: "blue" };
+    const cont = document.getElementById("audit-list");
+    if (!slice.length) { cont.innerHTML = emptyState(ICONS.shield, "Nincs naplóbejegyzés", "Nincs a szűrőnek megfelelő esemény.", ""); return; }
+    cont.innerHTML = '<div class="glass-panel divide-y divide-white/10">' +
+      slice.map(l => '<div class="p-5 flex items-start gap-4 hover:bg-white/5 transition">' +
+        '<div class="shrink-0">' + badge(l.type, typeColor[l.type] || "gray") + '</div>' +
+        '<div class="flex-1 min-w-0"><div class="font-medium text-sm text-white">' + escapeHtml(l.message) + '</div>' +
+          (l.meta ? '<div class="text-xs font-geist text-white/60 mt-1 font-mono">' + escapeHtml(l.meta) + '</div>' : '') + '</div>' +
+        '<div class="text-right shrink-0"><div class="text-xs font-geist text-white/60">' + fmtDate(l.ts) + '</div><div class="text-xs font-geist text-white/40 font-mono mt-1">' + escapeHtml(l.ip) + '</div></div>' +
+      '</div>').join("") + '</div>' +
+      '<div class="flex items-center justify-between mt-5 text-sm font-geist"><span class="text-white/60">' + logs.length + ' bejegyzés · ' + auditPage + '/' + pages + ' oldal</span>' +
+        '<div class="flex gap-3"><button data-page-prev ' + (auditPage <= 1 ? "disabled" : "") + ' class="px-5 py-2.5 rounded-full glass-button disabled:opacity-40 hover:bg-white/10 transition">Előző</button><button data-page-next ' + (auditPage >= pages ? "disabled" : "") + ' class="px-5 py-2.5 rounded-full glass-button disabled:opacity-40 hover:bg-white/10 transition">Következő</button></div></div>';
+    const p = cont.querySelector("[data-page-prev]"); if (p) p.addEventListener("click", () => { auditPage--; renderList(); });
+    const n = cont.querySelector("[data-page-next]"); if (n) n.addEventListener("click", () => { auditPage++; renderList(); });
+  };
+  document.getElementById("audit-search").addEventListener("input", e => { auditSearch = e.target.value; auditPage = 1; renderList(); });
+  document.getElementById("audit-filter").addEventListener("change", e => { auditFilter = e.target.value; auditPage = 1; renderList(); });
+  document.getElementById("audit-sort").addEventListener("change", e => { auditSort = e.target.value; renderList(); });
+  renderList();
+};
+</script>
+
+<script>
+Pages.notifications = function() {
+  const n = State.notifications;
+  return sectionHeader(t("nav_notifications"), "Rendszerértesítések és események.",
+      btnGhost(ICONS.check + " Összes olvasott", 'data-mark-all') + btnGhost(ICONS.trash + " Törlés", 'data-clear-notif')) +
+    (n.length ? '<div class="space-y-4">' + n.map(item => {
+      const kindColor = { success: "green", info: "blue", warning: "amber", error: "red" };
+      return '<div class="glass-panel border ' + (item.read ? "border-white/10" : "border-primary-blue/50 shadow-[0_0_15px_rgba(10,132,255,0.2)]") + ' p-6 flex items-start gap-4">' +
+        '<span class="shrink-0 mt-0.5">' + (item.kind === "success" ? '<span class="text-emerald-400">' + ICONS.check + '</span>' : item.kind === "warning" ? '<span class="text-amber-400">' + ICONS.warn + '</span>' : item.kind === "error" ? '<span class="text-red-400">' + ICONS.x + '</span>' : '<span class="text-primary-blue">' + ICONS.info + '</span>') + '</span>' +
+        '<div class="flex-1"><div class="flex items-center gap-3"><h3 class="font-medium text-white">' + escapeHtml(item.title) + '</h3>' + (item.read ? "" : '<span class="w-2.5 h-2.5 rounded-full bg-primary-blue shadow-[0_0_8px_rgba(10,132,255,0.8)]"></span>') + '</div>' +
+          '<p class="text-sm text-white/70 font-geist mt-1">' + escapeHtml(item.body) + '</p>' +
+          '<div class="text-xs font-geist text-white/50 mt-2">' + fmtRelative(item.ts) + '</div></div>' +
+      '</div>';
+    }).join("") + '</div>' : emptyState(ICONS.bell, "Nincs értesítés", "Az új események itt jelennek meg.", ""));
+};
+Pages.notificationsInit = function() {
+  const a = document.querySelector("[data-mark-all]"); if (a) a.addEventListener("click", () => { const n = State.notifications; n.forEach(x => x.read = true); State.notifications = n; toast("Mind olvasottnak jelölve", "success"); render(); });
+  const c = document.querySelector("[data-clear-notif]"); if (c) c.addEventListener("click", () => confirmDialog("Értesítések törlése", "Az összes értesítés törlődik.", () => { State.notifications = []; render(); }, { danger: true }));
+  setTimeout(() => { const n = State.notifications; let changed = false; n.forEach(x => { if (!x.read) { x.read = true; changed = true; } }); if (changed) State.notifications = n; }, 2500);
+};
+
+Pages.webhooks = function() {
+  const w = State.webhooks;
+  return sectionHeader(t("nav_webhooks"), "Webhook végpontok és értesítési beállítások.",
+      btnPrimary(ICONS.plus + " Webhook hozzáadása", 'data-add-webhook')) +
+    '<div class="glass-panel p-6 mb-6">' +
+      '<h3 class="font-semibold text-lg mb-4 text-white">Értesítési csatornák</h3>' +
+      toggleRow("E-mail értesítések", "E-mail küldése a fiók eseményeiről", "notifEmail") +
+      toggleRow("Webhook értesítések", "POST kérés a beállított végpontokra", "notifWebhook") +
+    '</div>' +
+    (w.length ? '<div class="space-y-4">' + w.map(item =>
+      '<div class="glass-panel p-6">' +
+        '<div class="flex flex-wrap items-center justify-between gap-4">' +
+          '<div class="min-w-0"><div class="flex items-center gap-3 mb-2"><code class="font-mono text-sm break-all text-white/90">' + escapeHtml(item.url) + '</code>' + (item.active ? badge("Aktív", "green") : badge("Inaktív", "gray")) + '</div>' +
+            '<div class="flex flex-wrap gap-2">' + item.events.map(e => badge(e, "blue")).join("") + '</div></div>' +
+          '<div class="flex gap-3"><button data-test-webhook="' + item.id + '" class="px-4 py-2.5 rounded-full glass-button text-sm font-geist inline-flex items-center gap-2 hover:bg-white/10 transition">' + ICONS.play + 'Teszt</button>' +
+            '<button data-del-webhook="' + item.id + '" class="px-4 py-2.5 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition">' + ICONS.trash + '</button></div>' +
+        '</div></div>').join("") + '</div>' :
+      emptyState(ICONS.swap, "Nincs webhook", "Adjon hozzá egy végpontot az események fogadásához.", btnPrimary(ICONS.plus + " Webhook hozzáadása", 'data-add-webhook-empty')));
+};
+function toggleRow(title, sub, key) {
+  const on = State.settings[key];
+  return '<div class="flex items-center justify-between py-4 border-b border-white/10 last:border-0"><div><div class="font-medium text-sm text-white">' + escapeHtml(title) + '</div><div class="text-xs font-geist text-white/60 mt-1">' + escapeHtml(sub) + '</div></div>' +
+    '<button data-toggle="' + key + '" class="relative w-14 h-8 rounded-full transition ' + (on ? "bg-primary-blue shadow-[0_0_10px_rgba(10,132,255,0.5)]" : "bg-white/20") + '"><span class="absolute top-1 ' + (on ? "left-7" : "left-1") + ' w-6 h-6 rounded-full bg-white transition-all shadow-md"></span></button></div>';
+}
+Pages.webhooksInit = function() {
+  document.querySelectorAll("[data-toggle]").forEach(b => b.addEventListener("click", () => {
+    const key = b.getAttribute("data-toggle"); const s = State.settings; s[key] = !s[key]; State.settings = s;
+    toast("Beállítás mentve", "success"); render();
+  }));
+  const add = () => {
+    modal("Webhook hozzáadása",
+      field("Végpont URL", '<input id="wh-url" class="' + inputCls() + '" placeholder="https://example.com/webhook">') +
+      field("Események", '<div class="flex flex-wrap gap-3">' + ["query.run", "key.created", "sandbox.status", "data.import", "billing.update"].map(e => '<label class="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-button text-sm font-geist cursor-pointer hover:bg-white/10 transition"><input type="checkbox" value="' + e + '" class="wh-event accent-[#0a84ff]">' + e + '</label>').join("") + '</div>') +
+      '<button id="wh-save" class="w-full py-3 rounded-full bg-primary-blue text-white font-semibold mt-4 shadow-[0_0_15px_rgba(10,132,255,0.4)]">Hozzáadás</button>',
+      { onMount(wrap, close) { wrap.querySelector("#wh-save").addEventListener("click", () => {
+        const url = wrap.querySelector("#wh-url").value.trim();
+        if (!/^https?:\/\//.test(url)) { toast("Érvényes URL szükséges", "error"); return; }
+        const events = Array.from(wrap.querySelectorAll(".wh-event:checked")).map(c => c.value);
+        if (!events.length) { toast("Válasszon legalább egy eseményt", "warning"); return; }
+        const w = State.webhooks;
+        w.push({ id: uid("wh"), url: url, events: events, active: true });
+        State.webhooks = w;
+        addLog("ops", "Webhook hozzáadva", url); toast("Webhook hozzáadva", "success"); close(); render();
+      }); } });
+  };
+  const a1 = document.querySelector("[data-add-webhook]"); if (a1) a1.addEventListener("click", add);
+  const a2 = document.querySelector("[data-add-webhook-empty]"); if (a2) a2.addEventListener("click", add);
+  document.querySelectorAll("[data-test-webhook]").forEach(b => b.addEventListener("click", () => { toast("Teszt esemény elküldve (200 OK)", "success"); addLog("ops", "Webhook teszt", b.getAttribute("data-test-webhook")); }));
+  document.querySelectorAll("[data-del-webhook]").forEach(b => b.addEventListener("click", () => { State.webhooks = State.webhooks.filter(x => x.id !== b.getAttribute("data-del-webhook")); toast("Webhook törölve", "success"); render(); }));
+};
+</script>
+
+<script>
+const PLANS = [
+  { id: "free", name: "Free", price: "0", features: ["1 tenant", "1 GB tárhely", "10K kérés / hó", "Közösségi támogatás"], cta: "Jelenlegi" },
+  { id: "pro", name: "Pro", price: "49", features: ["5 tenant", "50 GB tárhely", "1M kérés / hó", "Prioritásos támogatás", "Webhookok"], cta: "Váltás Pro-ra", featured: true },
+  { id: "enterprise", name: "Enterprise", price: "Egyedi", features: ["Korlátlan tenant", "Dedikált infrastruktúra", "SLA garancia", "24/7 támogatás", "SSO / SAML"], cta: "Kapcsolatfelvétel" }
+];
+Pages.billing = function() {
+  const b = State.billing;
+  return sectionHeader(t("nav_billing"), "Előfizetés kezelése, csomag választás és használati limitek.") +
+    '<div class="glass-panel p-6 mb-8">' +
+      '<div class="flex flex-wrap items-center justify-between gap-5">' +
+        '<div><div class="text-sm font-geist text-white/60 mb-2">Jelenlegi csomag</div><div class="text-3xl font-semibold text-white">' + b.plan.toUpperCase() + ' ' + badge("Aktív", "green") + '</div><div class="text-sm font-geist text-white/60 mt-2">Aktív azóta: ' + fmtDate(b.since) + '</div></div>' +
+        '<div class="flex items-center gap-4">' + toggleRow("Automatikus megújítás", "", "autoRenew").replace("data-toggle=\"autoRenew\"", "data-billing-toggle=\"autoRenew\"") + '</div>' +
+      '</div>' +
+    '</div>' +
+    '<h3 class="font-semibold text-xl mb-5 text-white">Csomag választás</h3>' +
+    '<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">' + PLANS.map(p =>
+      '<div class="glass-panel p-8 border-2 ' + (b.plan === p.id ? "border-primary-blue shadow-[0_0_20px_rgba(10,132,255,0.3)]" : "border-white/10") + ' ' + (p.featured ? "relative" : "") + '">' +
+        (p.featured ? '<span class="absolute -top-3.5 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-primary-blue text-white text-xs font-geist shadow-[0_0_10px_rgba(10,132,255,0.5)]">Népszerű</span>' : '') +
+        '<h4 class="text-xl font-semibold mb-2 text-white">' + p.name + '</h4>' +
+        '<div class="mb-6"><span class="text-4xl font-semibold text-white">' + (p.price === "Egyedi" ? p.price : "$" + p.price) + '</span>' + (p.price !== "Egyedi" ? '<span class="text-white/60 font-geist"> / hó</span>' : '') + '</div>' +
+        '<ul class="space-y-3 mb-8">' + p.features.map(f => '<li class="flex items-center gap-3 text-sm font-geist text-white/80"><span class="text-emerald-400">' + ICONS.check + '</span>' + escapeHtml(f) + '</li>').join("") + '</ul>' +
+        '<button data-plan="' + p.id + '" ' + (b.plan === p.id ? "disabled" : "") + ' class="w-full py-3.5 rounded-full font-medium text-sm transition ' + (b.plan === p.id ? "glass-button text-white/50 cursor-default" : "bg-primary-blue text-white hover:opacity-90 shadow-[0_0_15px_rgba(10,132,255,0.4)]") + '">' + (b.plan === p.id ? "Jelenlegi csomag" : p.cta) + '</button>' +
+      '</div>').join("") + '</div>' +
+    '<div class="glass-panel p-6">' +
+      '<h3 class="font-semibold text-lg mb-5 text-white">Rate limit információ</h3>' +
+      '<div class="grid grid-cols-1 sm:grid-cols-3 gap-5">' + miniStat("Kérés / perc", "1 000") + miniStat("Burst limit", "2 000") + miniStat("Egyidejű query", "50") + '</div>' +
+    '</div>';
+};
+Pages.billingInit = function() {
+  document.querySelectorAll("[data-plan]").forEach(b => b.addEventListener("click", () => {
+    const plan = b.getAttribute("data-plan");
+    if (plan === "enterprise") { location.hash = "#/support"; toast("Vegye fel a kapcsolatot az értékesítéssel", "info"); return; }
+    confirmDialog("Csomag váltás", "Biztosan átvált a(z) " + plan.toUpperCase() + " csomagra?", () => {
+      const bi = State.billing; bi.plan = plan; bi.since = Date.now(); State.billing = bi;
+      addLog("ops", "Csomag váltás", plan); pushNotification("Csomag frissítve", "Az előfizetése mostantól: " + plan.toUpperCase(), "success");
+      toast("Csomag frissítve: " + plan.toUpperCase(), "success"); render();
+    });
+  }));
+  const tg = document.querySelector("[data-billing-toggle]"); if (tg) tg.addEventListener("click", () => { const b = State.billing; b.autoRenew = !b.autoRenew; State.billing = b; const s = State.settings; s.autoRenew = b.autoRenew; State.settings = s; toast("Beállítás mentve", "success"); render(); });
+};
+
+Pages.profile = function() {
+  const acc = State.account;
+  return sectionHeader(t("nav_profile"), "Profil és fiók beállítások.") +
+    '<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">' +
+      '<div class="glass-panel p-8 text-center">' +
+        '<div class="w-28 h-28 rounded-full brand-gradient text-white flex items-center justify-center text-4xl font-semibold mx-auto mb-5 shadow-[0_0_20px_rgba(10,132,255,0.5)]">' + escapeHtml(acc.email[0].toUpperCase()) + '</div>' +
+        '<h3 class="font-semibold text-xl text-white">' + escapeHtml(acc.name) + '</h3>' +
+        '<p class="text-sm text-white/60 font-geist mt-1">' + escapeHtml(acc.email) + '</p>' +
+        '<div class="mt-4">' + badge(State.billing.plan.toUpperCase(), "blue") + '</div>' +
+      '</div>' +
+      '<div class="lg:col-span-2 glass-panel p-8">' +
+        '<h3 class="font-semibold text-lg mb-6 text-white">Fiók adatok</h3>' +
+        '<form id="profile-form">' +
+          field("Megjelenítendő név", '<input id="pf-name" class="' + inputCls() + '" value="' + escapeHtml(acc.name) + '">') +
+          field("E-mail cím", '<input id="pf-email" type="email" class="' + inputCls() + '" value="' + escapeHtml(acc.email) + '">') +
+          field("Tenant ID", '<input class="' + inputCls() + ' font-mono text-white/60" value="' + escapeHtml(acc.tenantId) + '" readonly>') +
+          field("Regisztráció dátuma", '<input class="' + inputCls() + ' text-white/60" value="' + fmtDate(acc.createdAt) + '" readonly>') +
+          '<button type="submit" class="px-8 py-3.5 rounded-full bg-primary-blue text-white font-semibold mt-4 shadow-[0_0_15px_rgba(10,132,255,0.4)]">' + t("save") + '</button>' +
+        '</form>' +
+      '</div>' +
+    '</div>';
+};
+Pages.profileInit = function() {
+  document.getElementById("profile-form").addEventListener("submit", e => {
+    e.preventDefault();
+    const acc = State.account; acc.name = document.getElementById("pf-name").value.trim() || acc.name;
+    const email = document.getElementById("pf-email").value.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast("Érvénytelen e-mail", "error"); return; }
+    acc.email = email; State.account = acc; addLog("ops", "Profil frissítve", email); toast("Profil mentve", "success"); render();
+  });
+};
+
+Pages.settings = function() {
+  const s = State.settings;
+  return sectionHeader(t("nav_settings"), "Megjelenés, nyelv és értesítési beállítások.") +
+    '<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">' +
+      '<div class="glass-panel p-6">' +
+        '<h3 class="font-semibold text-lg mb-5 text-white">Megjelenés</h3>' +
+        '<div class="grid grid-cols-2 gap-4 mb-5">' +
+          '<button data-set-theme="light" class="p-5 rounded-2xl border-2 ' + (s.theme === "light" ? "border-primary-blue shadow-[0_0_15px_rgba(10,132,255,0.3)]" : "border-white/10 glass-button") + ' flex flex-col items-center gap-3 transition"><span class="text-amber-400">' + ICONS.sun + '</span><span class="text-sm font-geist font-medium text-white">Világos mód</span></button>' +
+          '<button data-set-theme="dark" class="p-5 rounded-2xl border-2 ' + (s.theme === "dark" ? "border-primary-blue shadow-[0_0_15px_rgba(10,132,255,0.3)]" : "border-white/10 glass-button") + ' flex flex-col items-center gap-3 transition"><span class="text-primary-blue">' + ICONS.moon + '</span><span class="text-sm font-geist font-medium text-white">Sötét mód</span></button>' +
+        '</div>' +
+        field("Nyelv", '<select id="set-lang" class="' + inputCls() + '"><option value="hu" class="bg-black text-white"' + (s.lang === "hu" ? " selected" : "") + '>Magyar</option><option value="en" class="bg-black text-white"' + (s.lang === "en" ? " selected" : "") + '>English</option></select>') +
+      '</div>' +
+      '<div class="glass-panel p-6">' +
+        '<h3 class="font-semibold text-lg mb-5 text-white">Értesítések</h3>' +
+        toggleRow("E-mail értesítések", "Fontos események e-mailben", "notifEmail") +
+        toggleRow("Webhook értesítések", "Események POST küldése", "notifWebhook") +
+      '</div>' +
+    '</div>';
+};
+Pages.settingsInit = function() {
+  document.querySelectorAll("[data-set-theme]").forEach(b => b.addEventListener("click", () => { const s = State.settings; s.theme = b.getAttribute("data-set-theme"); State.settings = s; applyTheme(); render(); }));
+  document.getElementById("set-lang").addEventListener("change", e => setLang(e.target.value));
+  document.querySelectorAll("[data-toggle]").forEach(b => b.addEventListener("click", () => { const key = b.getAttribute("data-toggle"); const s = State.settings; s[key] = !s[key]; State.settings = s; toast("Beállítás mentve", "success"); render(); }));
+};
+</script>
+
+<script>
+const CODE_SAMPLES = {
+  javascript: 'const res = await fetch("' + API_BASE + '/databases/documents/query", {\n  method: "POST",\n  headers: {\n    "Authorization": "Bearer agdb_sk_YOUR_KEY",\n    "Content-Type": "application/json"\n  },\n  body: JSON.stringify({ search: "vector index", topK: 5 })\n});\nconst data = await res.json();\nconsole.log(data.rows);',
+  typescript: 'interface QueryResponse {\n  rows: Record<string, unknown>[];\n  took: number;\n}\n\nasync function query(term: string): Promise<QueryResponse> {\n  const res = await fetch("' + API_BASE + '/databases/documents/query", {\n    method: "POST",\n    headers: {\n      Authorization: `Bearer ${process.env.AGDB_KEY}`,\n      "Content-Type": "application/json"\n    },\n    body: JSON.stringify({ search: term, topK: 5 })\n  });\n  if (!res.ok) throw new Error(`AGDB error: ${res.status}`);\n  return res.json() as Promise<QueryResponse>;\n}',
+  python: 'import requests\n\nresp = requests.post(\n    "' + API_BASE + '/databases/documents/query",\n    headers={\n        "Authorization": "Bearer agdb_sk_YOUR_KEY",\n        "Content-Type": "application/json",\n    },\n    json={"search": "vector index", "topK": 5},\n    timeout=10,\n)\nresp.raise_for_status()\nfor row in resp.json()["rows"]:\n    print(row)',
+  zig: 'const std = @import("std");\nconst http = std.http;\n\npub fn main() !void {\n    var gpa = std.heap.GeneralPurposeAllocator(.{}){};\n    const allocator = gpa.allocator();\n    var client = http.Client{ .allocator = allocator };\n    defer client.deinit();\n\n    const uri = try std.Uri.parse("' + API_BASE + '/databases/documents/query");\n    var headers = http.Headers{ .allocator = allocator };\n    try headers.append("Authorization", "Bearer agdb_sk_YOUR_KEY");\n    try headers.append("Content-Type", "application/json");\n\n    var req = try client.request(.POST, uri, headers, .{});\n    defer req.deinit();\n    req.transfer_encoding = .{ .content_length = 38 };\n    try req.start();\n    try req.writer().writeAll("{\\"search\\":\\"vector index\\",\\"topK\\":5}");\n    try req.finish();\n    try req.wait();\n}',
+  curl: 'curl -X POST "' + API_BASE + '/databases/documents/query" \\\n  -H "Authorization: Bearer agdb_sk_YOUR_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"search": "vector index", "topK": 5}\''
+};
+let sampleLang = "javascript";
+Pages.samples = function() {
+  const langs = [["javascript", "JavaScript"], ["typescript", "TypeScript"], ["python", "Python"], ["zig", "Zig"], ["curl", "cURL"]];
+  return sectionHeader(t("nav_samples"), "Használati példák és SDK kódminták több nyelven.") +
+    '<div class="glass-panel p-6">' +
+      '<div class="flex flex-wrap gap-3 mb-6">' + langs.map(l => '<button data-sample-lang="' + l[0] + '" class="px-5 py-2.5 rounded-full text-sm font-geist transition ' + (sampleLang === l[0] ? "bg-primary-blue text-white shadow-[0_0_10px_rgba(10,132,255,0.4)]" : "glass-button hover:bg-white/10") + '">' + l[1] + '</button>').join("") + '</div>' +
+      '<div id="sample-code">' + codeBlock(CODE_SAMPLES[sampleLang], sampleLang) + '</div>' +
+    '</div>' +
+    '<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">' +
+      sdkCard("npm", "npm install @agdb/sdk", "JavaScript / TypeScript SDK") +
+      sdkCard("pip", "pip install agdb", "Python SDK") +
+      sdkCard("zig", "zig fetch --save agdb", "Zig csomag") +
+    '</div>';
+};
+function sdkCard(name, cmd, desc) {
+  return '<div class="glass-panel p-6">' +
+    '<div class="flex items-center justify-between mb-3"><h4 class="font-semibold text-white">' + escapeHtml(name) + '</h4>' + badge("SDK", "blue") + '</div>' +
+    '<p class="text-sm text-white/60 font-geist mb-4">' + escapeHtml(desc) + '</p>' +
+    '<div class="flex items-center gap-2 p-3 rounded-xl bg-black/50 border border-white/10 text-white/90"><code class="font-mono text-xs flex-1">' + escapeHtml(cmd) + '</code>' + copyButton(cmd, "Parancs") + '</div></div>';
+}
+Pages.samplesInit = function() {
+  document.querySelectorAll("[data-sample-lang]").forEach(b => b.addEventListener("click", () => {
+    sampleLang = b.getAttribute("data-sample-lang");
+    document.querySelectorAll("[data-sample-lang]").forEach(x => x.className = "px-5 py-2.5 rounded-full text-sm font-geist transition " + (x === b ? "bg-primary-blue text-white shadow-[0_0_10px_rgba(10,132,255,0.4)]" : "glass-button hover:bg-white/10"));
+    document.getElementById("sample-code").innerHTML = codeBlock(CODE_SAMPLES[sampleLang], sampleLang);
+  }));
+};
+
+const ERROR_CODES = [
+  { code: "400", name: "Bad Request", desc: "Érvénytelen kérés vagy hibás query szintaxis.", color: "amber" },
+  { code: "401", name: "Unauthorized", desc: "Hiányzó vagy érvénytelen API kulcs.", color: "red" },
+  { code: "403", name: "Forbidden", desc: "Az API kulcsnak nincs jogosultsága a művelethez.", color: "red" },
+  { code: "404", name: "Not Found", desc: "A kollekció vagy rekord nem található.", color: "amber" },
+  { code: "409", name: "Conflict", desc: "Ütköző írási művelet vagy duplikált azonosító.", color: "amber" },
+  { code: "422", name: "Unprocessable Entity", desc: "A query validáció sikertelen.", color: "amber" },
+  { code: "429", name: "Too Many Requests", desc: "Rate limit túllépve. Várjon a megújulásig.", color: "amber" },
+  { code: "500", name: "Internal Server Error", desc: "Váratlan szerverhiba történt.", color: "red" },
+  { code: "503", name: "Service Unavailable", desc: "A sandbox leállt vagy karbantartás alatt áll.", color: "red" },
+  { code: "504", name: "Gateway Timeout", desc: "A query időtúllépést okozott.", color: "red" }
+];
+Pages.errors = function() {
+  return sectionHeader(t("nav_errors"), "HTTP hibakódok és jelentésük.") +
+    '<div class="glass-panel divide-y divide-white/10">' +
+      ERROR_CODES.map(e => '<div class="p-6 flex items-start gap-5 hover:bg-white/5 transition"><div class="shrink-0 w-16">' + badge(e.code, e.color) + '</div>' +
+        '<div><h4 class="font-semibold text-white">' + escapeHtml(e.name) + '</h4><p class="text-sm text-white/60 font-geist mt-1">' + escapeHtml(e.desc) + '</p></div></div>').join("") +
+    '</div>';
+};
+</script>
+
+<script>
+let consoleHistory = [];
+Pages.console = function() {
+  return sectionHeader(t("nav_console"), "Request / Response inspector valós idejű kérésekhez.") +
+    '<div class="grid grid-cols-1 xl:grid-cols-2 gap-6">' +
+      '<div class="glass-panel p-6">' +
+        '<h3 class="font-semibold text-lg mb-5 text-white">Kérés</h3>' +
+        '<div class="flex gap-3 mb-4"><select id="dc-method" class="' + inputCls() + '" style="width:auto"><option class="bg-black text-white">GET</option><option class="bg-black text-white" selected>POST</option><option class="bg-black text-white">PUT</option><option class="bg-black text-white">DELETE</option></select>' +
+          '<input id="dc-path" class="' + inputCls() + '" value="/databases/documents/query"></div>' +
+        '<div class="mb-4"><div class="text-sm font-medium font-geist mb-2 text-white/80">Headerek</div>' +
+          '<div class="p-4 rounded-xl glass text-xs font-mono text-white/90">Authorization: Bearer ' + (State.session ? State.session.apiKey.slice(0, 16) : "") + '…<br>Content-Type: application/json</div></div>' +
+        field("Törzs (JSON)", '<textarea id="dc-body" rows="8" class="' + inputCls() + ' font-mono resize-y">{\n  "search": "vector index",\n  "topK": 5\n}</textarea>') +
+        '<button id="dc-send" class="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-primary-blue text-white text-sm font-medium shadow-[0_0_15px_rgba(10,132,255,0.4)]">' + ICONS.play + 'Kérés küldése</button>' +
+      '</div>' +
+      '<div class="glass-panel p-6">' +
+        '<h3 class="font-semibold text-lg mb-5 text-white">Válasz</h3>' +
+        '<div id="dc-response">' + emptyState(ICONS.terminal, "Nincs válasz", "Küldjön egy kérést a válasz megtekintéséhez.", "") + '</div>' +
+      '</div>' +
+    '</div>';
+};
+Pages.consoleInit = function() {
+  document.getElementById("dc-send").addEventListener("click", () => {
+    const method = document.getElementById("dc-method").value;
+    const path = document.getElementById("dc-path").value;
+    const bodyTxt = document.getElementById("dc-body").value;
+    const cont = document.getElementById("dc-response");
+    let body;
+    try { body = bodyTxt.trim() ? JSON.parse(bodyTxt) : {}; }
+    catch (e) { cont.innerHTML = '<div class="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm font-geist">JSON parse hiba: ' + escapeHtml(e.message) + '</div>'; return; }
+    cont.innerHTML = loadingBlock("Kérés küldése...");
+    const start = performance.now();
+    setTimeout(() => {
+      let status = 200, payload;
+      if (!State.session || !State.session.apiKey) { status = 401; payload = { error: "unauthorized", message: "Missing API key" }; }
+      else if (path.includes("/query") || path.includes("/search")) {
+        const result = runQuery({ from: "documents", search: body.search, topK: body.topK, where: body.where, limit: body.limit, orderBy: body.orderBy });
+        payload = { rows: result.rows, count: result.rows.length, took: Math.round(performance.now() - start) };
+      } else if (path.includes("/health")) { payload = { status: "healthy", uptime: 998877, version: "2.4.0" }; }
+      else if (path.includes("/databases")) { payload = { databases: ["documents"], count: 1 }; }
+      else { status = 404; payload = { error: "not_found", message: "Unknown endpoint: " + path }; }
+      const ms = Math.round(performance.now() - start);
+      const statusColor = status < 300 ? "green" : status < 500 ? "amber" : "red";
+      cont.innerHTML = '<div class="flex items-center gap-3 mb-4">' + badge(status + " " + (status === 200 ? "OK" : status === 401 ? "Unauthorized" : "Not Found"), statusColor) + badge(ms + " ms", "blue") + '<span class="ml-auto">' + copyButton(JSON.stringify(payload, null, 2), "Válasz") + '</span></div>' +
+        '<pre class="p-4 rounded-xl bg-black/50 border border-white/10 text-white/90 text-sm overflow-x-auto max-h-[400px] overflow-y-auto"><code>' + escapeHtml(JSON.stringify(payload, null, 2)) + '</code></pre>';
+      addLog("access", method + " " + API_BASE + path, status + " · " + ms + "ms");
+    }, 500);
+  });
+};
+
+Pages.tester = function() {
+  const endpoints = [
+    { method: "POST", path: "/databases/documents/query", desc: "Lekérdezés futtatása" },
+    { method: "POST", path: "/databases/documents/search", desc: "Teljes szöveges keresés" },
+    { method: "GET", path: "/databases", desc: "Kollekciók listázása" },
+    { method: "GET", path: "/health", desc: "Egészségügyi állapot" },
+    { method: "GET", path: "/tenant", desc: "Tenant információ" }
+  ];
+  return sectionHeader(t("nav_tester"), "API végpont tesztelő gyorsindításhoz.") +
+    '<div class="grid grid-cols-1 md:grid-cols-2 gap-5">' + endpoints.map((e, i) =>
+      '<div class="glass-panel p-6">' +
+        '<div class="flex items-center gap-3 mb-3">' + badge(e.method, e.method === "GET" ? "green" : "blue") + '<code class="font-mono text-sm text-white/90">' + escapeHtml(e.path) + '</code></div>' +
+        '<p class="text-sm text-white/60 font-geist mb-4">' + escapeHtml(e.desc) + '</p>' +
+        '<button data-test-ep="' + i + '" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary-blue text-white text-sm font-medium shadow-[0_0_10px_rgba(10,132,255,0.4)]">' + ICONS.play + 'Tesztelés</button>' +
+        '<div data-ep-result="' + i + '" class="mt-4"></div>' +
+      '</div>').join("") + '</div>';
+};
+Pages.testerInit = function() {
+  const endpoints = [
+    { method: "POST", path: "/databases/documents/query", run: () => runQuery({ from: "documents", limit: 3 }) },
+    { method: "POST", path: "/databases/documents/search", run: () => runQuery({ from: "documents", search: "index", topK: 3 }) },
+    { method: "GET", path: "/databases", run: () => ({ rows: [{ name: "documents", records: State.db.records.length }] }) },
+    { method: "GET", path: "/health", run: () => ({ rows: [{ status: "healthy", version: "2.4.0" }] }) },
+    { method: "GET", path: "/tenant", run: () => ({ rows: [{ id: State.account.tenantId, status: "active" }] }) }
+  ];
+  document.querySelectorAll("[data-test-ep]").forEach(b => b.addEventListener("click", () => {
+    const i = parseInt(b.getAttribute("data-test-ep"));
+    const cont = document.querySelector('[data-ep-result="' + i + '"]');
+    cont.innerHTML = loadingBlock("Tesztelés...");
+    const start = performance.now();
+    setTimeout(() => {
+      const result = endpoints[i].run();
+      const ms = Math.round(performance.now() - start);
+      cont.innerHTML = '<div class="flex items-center gap-2 mb-3">' + badge("200 OK", "green") + badge(ms + " ms", "blue") + '</div>' +
+        '<pre class="p-4 rounded-xl bg-black/50 border border-white/10 text-white/90 text-xs overflow-x-auto max-h-48 overflow-y-auto"><code>' + escapeHtml(JSON.stringify(result.rows, null, 2)) + '</code></pre>';
+      addLog("access", endpoints[i].method + " " + endpoints[i].path, "200 · " + ms + "ms");
+    }, 450);
+  }));
+};
+
+Pages.jsontools = function() {
+  return sectionHeader(t("nav_jsontools"), "JSON formázó és validátor.") +
+    '<div class="glass-panel p-6">' +
+      '<div class="flex flex-wrap gap-3 mb-5">' +
+        '<button id="jt-format" class="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-primary-blue text-white text-sm font-medium shadow-[0_0_15px_rgba(10,132,255,0.4)]">' + ICONS.code + 'Formázás</button>' +
+        '<button id="jt-minify" class="px-6 py-3 rounded-full glass-button text-sm font-medium hover:bg-white/10 transition">Tömörítés</button>' +
+        '<button id="jt-validate" class="inline-flex items-center gap-2 px-6 py-3 rounded-full glass-button text-sm font-medium hover:bg-white/10 transition">' + ICONS.check + 'Validálás</button>' +
+        '<button id="jt-copy" class="inline-flex items-center gap-2 px-6 py-3 rounded-full glass-button text-sm font-medium hover:bg-white/10 transition">' + ICONS.copy + t("copy") + '</button>' +
+      '</div>' +
+      '<textarea id="jt-input" rows="16" class="' + inputCls() + ' font-mono resize-y" placeholder=\'{"hello": "world", "list": [1, 2, 3]}\'>{"agdb": {"version": "2.4.0", "features": ["graph", "vector", "fulltext"]}, "tenant": {"status": "active", "quota": {"cpu": 2, "ram": 512}}}</textarea>' +
+      '<div id="jt-status" class="mt-4"></div>' +
+    '</div>';
+};
+Pages.jsontoolsInit = function() {
+  const input = document.getElementById("jt-input");
+  const status = document.getElementById("jt-status");
+  const parse = () => { try { return { ok: true, val: JSON.parse(input.value) }; } catch (e) { return { ok: false, err: e.message }; } };
+  document.getElementById("jt-format").addEventListener("click", () => { const r = parse(); if (r.ok) { input.value = JSON.stringify(r.val, null, 2); status.innerHTML = '<div class="text-emerald-400 text-sm font-geist flex items-center gap-1.5">' + ICONS.check + 'Formázva</div>'; } else status.innerHTML = '<div class="text-red-400 text-sm font-geist flex items-center gap-1.5">' + ICONS.warn + escapeHtml(r.err) + '</div>'; });
+  document.getElementById("jt-minify").addEventListener("click", () => { const r = parse(); if (r.ok) { input.value = JSON.stringify(r.val); status.innerHTML = '<div class="text-emerald-400 text-sm font-geist flex items-center gap-1.5">' + ICONS.check + 'Tömörítve</div>'; } else status.innerHTML = '<div class="text-red-400 text-sm font-geist flex items-center gap-1.5">' + ICONS.warn + escapeHtml(r.err) + '</div>'; });
+  document.getElementById("jt-validate").addEventListener("click", () => { const r = parse(); status.innerHTML = r.ok ? '<div class="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm font-geist flex items-center gap-2">' + ICONS.check + 'Érvényes JSON</div>' : '<div class="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm font-geist flex items-center gap-2">' + ICONS.warn + 'Érvénytelen: ' + escapeHtml(r.err) + '</div>'; });
+  document.getElementById("jt-copy").addEventListener("click", () => copyText(input.value, "JSON"));
+};
+</script>
+
+<script>
+Pages.docs = function() {
+  const inner =
+    sectionHeader(t("nav_docs"), "Dokumentáció központ, gyorsindítás és hitelesítési útmutató.") +
+    '<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">' +
+      docCard("rocket", "Gyorsindítás", "5 perc alatt az első lekérdezésig.", "#quickstart") +
+      docCard("shield", "Hitelesítés", "Bearer token alapú authentikáció.", "#auth") +
+      docCard("doc", "API referencia", "Teljes végpont referencia.", isAuthed() ? "#/apiref" : "#/docs") +
+    '</div>' +
+    '<div id="quickstart" class="glass-panel p-8 mb-6">' +
+      '<h2 class="text-2xl font-semibold mb-5 text-white">Gyorsindítás</h2>' +
+      '<ol class="space-y-5 mb-6">' +
+        qsStep(1, "Regisztráljon", "Hozzon létre egy fiókot e-mail címmel — automatikusan kap egy API kulcsot.") +
+        qsStep(2, "Indítsa el a sandboxot", "A tenant sandbox biztosítja az izolált futtatási környezetet.") +
+        qsStep(3, "Futtassa az első lekérdezést", "Küldjön egy query kérést a dokumentum kollekcióra.") +
+      '</ol>' +
+      codeBlock(CODE_SAMPLES.curl, "bash") +
+    '</div>' +
+    '<div id="auth" class="glass-panel p-8 mb-6">' +
+      '<h2 class="text-2xl font-semibold mb-4 text-white">Hitelesítési útmutató</h2>' +
+      '<p class="text-white/70 mb-5">Minden API kérés Bearer token hitelesítést használ. Adja át az API kulcsot az <code class="font-mono text-sm glass px-2 py-1 rounded">Authorization</code> fejlécben.</p>' +
+      codeBlock('Authorization: Bearer agdb_sk_YOUR_API_KEY', "http") +
+    '</div>' +
+    '<div class="glass-panel p-8">' +
+      '<h2 class="text-2xl font-semibold mb-5 text-white">API végpontok</h2>' + endpointList() +
+    '</div>';
+  return inner;
+};
+function docCard(icon, title, desc, href) {
+  return '<a href="' + href + '" class="glass-panel p-6 hover:shadow-[0_8px_32px_rgba(10,132,255,0.15)] hover:border-primary-blue/30 transition block">' +
+    '<div class="w-12 h-12 rounded-2xl bg-primary-blue/20 text-primary-blue flex items-center justify-center mb-4 border border-primary-blue/30 shadow-[inset_0_0_10px_rgba(10,132,255,0.2)]">' + ICONS[icon] + '</div>' +
+    '<h3 class="font-semibold mb-2 text-white">' + escapeHtml(title) + '</h3><p class="text-sm text-white/60 font-geist">' + escapeHtml(desc) + '</p></a>';
+}
+function qsStep(n, title, desc) {
+  return '<li class="flex gap-4"><span class="shrink-0 w-8 h-8 rounded-full bg-primary-blue text-white flex items-center justify-center text-sm font-semibold shadow-[0_0_10px_rgba(10,132,255,0.5)]">' + n + '</span><div><div class="font-medium text-white">' + escapeHtml(title) + '</div><div class="text-sm text-white/60 font-geist mt-1">' + escapeHtml(desc) + '</div></div></li>';
+}
+const ENDPOINTS = [
+  { method: "POST", path: "/databases/{db}/query", desc: "Strukturált lekérdezés futtatása szűrőkkel és rendezéssel." },
+  { method: "POST", path: "/databases/{db}/search", desc: "Hibrid teljes szöveges és vektor keresés." },
+  { method: "POST", path: "/databases/{db}/records", desc: "Egy vagy több rekord beszúrása." },
+  { method: "GET", path: "/databases/{db}/records/{id}", desc: "Egyetlen rekord lekérése azonosító alapján." },
+  { method: "DELETE", path: "/databases/{db}/records/{id}", desc: "Rekord törlése." },
+  { method: "GET", path: "/databases", desc: "Elérhető kollekciók listázása." },
+  { method: "GET", path: "/tenant", desc: "Tenant állapot és metaadatok." },
+  { method: "GET", path: "/health", desc: "Szolgáltatás egészségügyi állapota." }
+];
+function endpointList() {
+  return '<div class="divide-y divide-white/10">' + ENDPOINTS.map(e =>
+    '<div class="py-4 flex flex-wrap items-center gap-4 hover:bg-white/5 transition px-2 rounded-lg"><span class="w-20 shrink-0">' + badge(e.method, e.method === "GET" ? "green" : e.method === "DELETE" ? "red" : "blue") + '</span>' +
+      '<code class="font-mono text-sm text-white/90">' + escapeHtml(API_BASE + e.path) + '</code>' +
+      '<span class="text-sm text-white/60 font-geist w-full sm:w-auto sm:ml-auto">' + escapeHtml(e.desc) + '</span></div>').join("") + '</div>';
+}
+Pages.docsInit = function() { if (!isAuthed()) bindPublicNav(); };
+
+Pages.apiref = function() {
+  return sectionHeader(t("nav_apiref"), "Teljes API referencia végpontonként.") +
+    '<div class="glass-panel p-8 mb-6">' +
+      '<div class="flex items-center gap-3 mb-6"><span class="text-sm font-geist text-white/60">Base URL</span><code class="font-mono text-sm glass px-3 py-1.5 rounded-lg text-white/90">' + API_BASE + '</code>' + copyButton(API_BASE, "Base URL") + '</div>' +
+      endpointList() +
+    '</div>' +
+    '<div class="glass-panel p-8 mb-6">' +
+      '<h3 class="font-semibold text-lg mb-5 text-white">Query végpont — kérés törzs</h3>' +
+      codeBlock(JSON.stringify({ from: "documents", where: [{ field: "category", op: "==", value: "engineering" }], orderBy: { field: "score", dir: "desc" }, search: "vector", topK: 5, limit: 10 }, null, 2), "json") +
+    '</div>' +
+    '<div class="glass-panel p-8">' +
+      '<h3 class="font-semibold text-lg mb-5 text-white">Válasz törzs</h3>' +
+      codeBlock(JSON.stringify({ rows: [{ id: "doc_1001", title: "Vector indexing overview", score: 0.98 }], count: 1, took: 38 }, null, 2), "json") +
+    '</div>';
+};
+
+Pages.swagger = function() {
+  const spec = {
+    openapi: "3.1.0",
+    info: { title: "AGDB API", version: "2.4.0", description: "Graph + vector database REST API" },
+    servers: [{ url: API_BASE }],
+    paths: {
+      "/databases/{db}/query": { post: { summary: "Run a query", security: [{ bearerAuth: [] }], responses: { "200": { description: "Query result" }, "401": { description: "Unauthorized" } } } },
+      "/databases/{db}/search": { post: { summary: "Full text search", security: [{ bearerAuth: [] }], responses: { "200": { description: "Ranked results" } } } },
+      "/health": { get: { summary: "Health check", responses: { "200": { description: "Healthy" } } } }
+    },
+    components: { securitySchemes: { bearerAuth: { type: "http", scheme: "bearer" } } }
+  };
+  let opsHtml = "";
+  for (const path in spec.paths) {
+    for (const method in spec.paths[path]) {
+      const op = spec.paths[path][method];
+      opsHtml += '<details class="glass border border-white/10 rounded-xl mb-4 overflow-hidden">' +
+        '<summary class="flex items-center gap-4 p-5 bg-black/40 hover:bg-black/60 transition">' + badge(method.toUpperCase(), method === "get" ? "green" : "blue") + '<code class="font-mono text-sm text-white/90">' + escapeHtml(path) + '</code><span class="text-sm text-white/60 font-geist ml-auto">' + escapeHtml(op.summary) + '</span></summary>' +
+        '<div class="p-5 border-t border-white/10"><h4 class="font-medium text-sm mb-3 text-white">Válaszok</h4><div class="space-y-2">' + Object.keys(op.responses).map(c => '<div class="flex items-center gap-3 text-sm font-geist">' + badge(c, c.startsWith("2") ? "green" : "red") + '<span class="text-white/80">' + escapeHtml(op.responses[c].description) + '</span></div>').join("") + '</div></div></details>';
+    }
+  }
+  return sectionHeader(t("nav_swagger"), "OpenAPI 3.1 specifikáció interaktív nézetben.",
+      btnGhost(ICONS.download + " Spec letöltése", 'data-dl-spec')) +
+    '<div class="glass-panel p-8 mb-6">' +
+      '<div class="flex items-center gap-4 mb-6"><h2 class="text-2xl font-semibold text-white">' + spec.info.title + '</h2>' + badge("v" + spec.info.version, "blue") + badge("OpenAPI 3.1", "gray") + '</div>' +
+      opsHtml +
+    '</div>' +
+    '<div class="glass-panel p-8"><h3 class="font-semibold text-lg mb-5 text-white">Nyers specifikáció</h3>' + codeBlock(JSON.stringify(spec, null, 2), "json") + '</div>';
+};
+Pages.swaggerInit = function() {
+  const b = document.querySelector("[data-dl-spec]");
+  if (b) b.addEventListener("click", () => {
+    const spec = { openapi: "3.1.0", info: { title: "AGDB API", version: "2.4.0" } };
+    const blob = new Blob([JSON.stringify(spec, null, 2)], { type: "application/json" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "agdb-openapi.json"; a.click();
+    toast("Specifikáció letöltve", "success");
+  });
+};
+</script>
+
+<script>
+Pages.status = function() {
+  const services = [
+    { name: "API Gateway", status: "operational" },
+    { name: "Query Engine", status: "operational" },
+    { name: "Vector Index", status: "operational" },
+    { name: "Sandbox Orchestrator", status: "operational" },
+    { name: "Authentication", status: "operational" },
+    { name: "Webhooks", status: "degraded" }
+  ];
+  const allOk = services.every(s => s.status === "operational");
+  const content = sectionHeader(t("nav_status"), "Rendszerállapot és egészségügyi státusz (health).") +
+    '<div class="glass-panel p-8 mb-6 ' + (allOk ? "border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.15)]" : "border-amber-500/30 shadow-[0_0_20px_rgba(245,158,11,0.15)]") + '">' +
+      '<div class="flex items-center gap-4"><span class="' + (allOk ? "text-emerald-400" : "text-amber-400") + '">' + (allOk ? ICONS.check : ICONS.warn) + '</span><h2 class="text-2xl font-semibold text-white">' + (allOk ? "Minden rendszer működik" : "Részleges szolgáltatáskimaradás") + '</h2></div>' +
+      '<p class="text-sm font-geist mt-2 ' + (allOk ? "text-emerald-300/70" : "text-amber-300/70") + '">Utolsó frissítés: ' + fmtDate(Date.now()) + '</p>' +
+    '</div>' +
+    '<div class="glass-panel divide-y divide-white/10 mb-6">' +
+      services.map(s => '<div class="p-5 flex items-center justify-between hover:bg-white/5 transition"><span class="font-medium text-white">' + escapeHtml(s.name) + '</span>' +
+        (s.status === "operational" ? '<span class="flex items-center gap-2 text-sm font-geist text-emerald-400"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>Működik</span>' : '<span class="flex items-center gap-2 text-sm font-geist text-amber-400"><span class="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)]"></span>Csökkentett</span>') + '</div>').join("") +
+    '</div>' +
+    '<div class="grid grid-cols-1 sm:grid-cols-3 gap-6">' +
+      statCard("Uptime (90 nap)", "99.98%", "SLA: 99.9%", ICONS.heart, "text-emerald-400") +
+      statCard("Átlag válaszidő", "42 ms", "Globális", ICONS.clock) +
+      statCard("Incidensek (30 nap)", "1", "Megoldva", ICONS.warn, "text-amber-400") +
+    '</div>';
+  return content;
+};
+Pages.statusInit = function() { if (!isAuthed()) bindPublicNav(); };
+
+Pages.support = function() {
+  const content = sectionHeader(t("nav_support"), "Támogatás és kapcsolatfelvétel.") +
+    '<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">' +
+      docCard("book", "Dokumentáció", "Útmutatók és referenciák.", isAuthed() ? "#/docs" : "#/docs") +
+      docCard("life", "Súgóközpont", "Gyakori kérdések és megoldások.", "#faq") +
+      docCard("heart", "Közösség", "Csatlakozzon a fejlesztői közösséghez.", "#community") +
+    '</div>' +
+    '<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">' +
+      '<div class="glass-panel p-8">' +
+        '<h3 class="font-semibold text-lg mb-5 text-white">Kapcsolatfelvétel</h3>' +
+        '<form id="support-form">' +
+          field("Tárgy", '<input id="sup-subject" class="' + inputCls() + '" required>') +
+          field("Kategória", '<select id="sup-cat" class="' + inputCls() + '"><option class="bg-black text-white">Technikai kérdés</option><option class="bg-black text-white">Számlázás</option><option class="bg-black text-white">Hibajelentés</option><option class="bg-black text-white">Funkciókérés</option></select>') +
+          field("Üzenet", '<textarea id="sup-msg" rows="5" class="' + inputCls() + ' resize-y" required></textarea>') +
+          '<button type="submit" class="px-8 py-3.5 rounded-full bg-primary-blue text-white font-semibold shadow-[0_0_15px_rgba(10,132,255,0.4)] hover:opacity-90 transition mt-2">Küldés</button>' +
+        '</form>' +
+      '</div>' +
+      '<div id="faq" class="glass-panel p-8">' +
+        '<h3 class="font-semibold text-lg mb-5 text-white">Gyakran ismételt kérdések</h3>' +
+        [["Hogyan kapok API kulcsot?", "A regisztrációkor automatikusan kap egyet, vagy generálhat újat az API kulcsok oldalon."],
+         ["Mi az a tenant?", "Az izolált adatkörnyezet, amelyben a sandbox és az adatbázis fut."],
+         ["Hogyan állítom le a sandboxot?", "A Sandbox oldalon a Leállítás gombbal."],
+         ["Visszavonhatok egy API kulcsot?", "Igen, az API kulcsok oldalon bármelyik aktív kulcsot visszavonhatja."]].map(f =>
+          '<details class="border-b border-white/10 py-4 group"><summary class="font-medium flex items-center justify-between text-white cursor-pointer">' + escapeHtml(f[0]) + '<span class="text-white/50 group-open:rotate-45 transition-transform">' + ICONS.plus + '</span></summary><p class="text-sm text-white/60 font-geist mt-3 leading-relaxed">' + escapeHtml(f[1]) + '</p></details>').join("") +
+      '</div>' +
+    '</div>';
+  return content;
+};
+Pages.supportInit = function() {
+  if (!isAuthed()) bindPublicNav();
+  const f = document.getElementById("support-form");
+  if (f) f.addEventListener("submit", e => { e.preventDefault(); toast("Üzenet elküldve! Hamarosan válaszolunk.", "success"); if (isAuthed()) { addLog("ops", "Támogatási kérés elküldve", document.getElementById("sup-subject").value); } f.reset(); });
+};
+
+Pages.legal = function() {
+  const content = sectionHeader(t("nav_legal"), "Jogi dokumentumok, adatvédelmi szabályzat és felhasználási feltételek.") +
+    '<div class="flex flex-wrap gap-3 mb-8"><button data-legal-tab="privacy" class="px-6 py-3 rounded-full text-sm font-geist bg-primary-blue text-white shadow-[0_0_15px_rgba(10,132,255,0.4)] transition">Adatvédelem</button><button data-legal-tab="terms" class="px-6 py-3 rounded-full text-sm font-geist glass-button hover:bg-white/10 transition">Feltételek</button></div>' +
+    '<div id="legal-content" class="glass-panel p-10"></div>';
+  return content;
+};
+const LEGAL_DOCS = {
+  privacy: { title: "Adatvédelmi szabályzat", body: ["Hatályos: 2026. január 1.", "Az AGDB elkötelezett a felhasználói adatok védelme mellett. Ez a szabályzat ismerteti, hogyan gyűjtjük, használjuk és védjük az Ön adatait.", "Adatgyűjtés: A regisztrációkor megadott e-mail címet és a szolgáltatás használata során keletkező technikai adatokat tároljuk.", "Adatfelhasználás: Az adatokat kizárólag a szolgáltatás biztosítására, fejlesztésére és a felhasználói támogatásra használjuk.", "Adatbiztonság: Minden adat titkosítva tárolódik, és háromszoros replikációval védett. A tenantok teljesen izoláltak egymástól.", "Az Ön jogai: Bármikor kérheti adatai exportálását vagy törlését a Tenant kezelés oldalon."] },
+  terms: { title: "Felhasználási feltételek", body: ["Hatályos: 2026. január 1.", "A szolgáltatás használatával Ön elfogadja az alábbi feltételeket.", "Szolgáltatás: Az AGDB graph és vektor adatbázis szolgáltatást nyújt API-n keresztül.", "Felhasználói felelősség: Ön felelős az API kulcsai biztonságáért és a fiókján keresztül végzett tevékenységekért.", "Korlátozások: A szolgáltatás a választott csomag szerinti rate limitek és kvóták szerint használható.", "Felelősségkorlátozás: A szolgáltatás \"ahogy van\" alapon érhető el, a vonatkozó SLA garanciák szerint.", "Megszüntetés: Fiókját bármikor törölheti. A feltételek megsértése esetén fenntartjuk a jogot a hozzáférés felfüggesztésére."] }
+};
+Pages.legalInit = function() {
+  if (!isAuthed()) bindPublicNav();
+  const renderDoc = (key) => {
+    const d = LEGAL_DOCS[key];
+    document.getElementById("legal-content").innerHTML = '<h2 class="text-2xl font-semibold mb-4 text-white">' + escapeHtml(d.title) + '</h2>' +
+      '<p class="text-sm text-white/60 font-geist mb-8">' + escapeHtml(d.body[0]) + '</p>' +
+      d.body.slice(1).map(p => '<p class="text-white/80 mb-5 leading-relaxed">' + escapeHtml(p) + '</p>').join("");
+  };
+  document.querySelectorAll("[data-legal-tab]").forEach(b => b.addEventListener("click", () => {
+    document.querySelectorAll("[data-legal-tab]").forEach(x => x.className = "px-6 py-3 rounded-full text-sm font-geist glass-button hover:bg-white/10 transition");
+    b.className = "px-6 py-3 rounded-full text-sm font-geist bg-primary-blue text-white shadow-[0_0_15px_rgba(10,132,255,0.4)] transition";
+    renderDoc(b.getAttribute("data-legal-tab"));
+  }));
+  renderDoc("privacy");
+};
+</script>
+
+<script>
+Pages.admin = function() {
+  const m = ensureMetrics();
+  return sectionHeader(t("nav_admin"), "Admin felület — rendszerszintű áttekintés és felhasználókezelés.") +
+    '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">' +
+      statCard("Tenantok", "1 248", "+24 a héten", ICONS.building) +
+      statCard("Aktív sandbox", "892", "71% kihasználtság", ICONS.server, "text-emerald-400") +
+      statCard("API kulcsok", "4 102", "Összes kiadott", ICONS.key, "text-amber-400") +
+      statCard("Napi kérés", (m.totalRequests * 1248).toLocaleString("hu-HU"), "Platform szintű", ICONS.chart, "text-light-blue") +
+    '</div>' +
+    '<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">' +
+      '<div class="glass-panel p-6">' +
+        '<h3 class="font-semibold text-lg mb-4 text-white">Tenant áttekintés</h3>' +
+        '<div class="overflow-x-auto"><table class="w-full text-sm font-geist"><thead><tr class="text-left text-white/60 border-b border-white/10"><th class="py-2 pr-4">Tenant</th><th class="py-2 pr-4">Csomag</th><th class="py-2">Állapot</th></tr></thead><tbody>' +
+          [["acme-prod", "Enterprise", "active"], ["dev-sandbox", "Free", "active"], ["data-lab", "Pro", "active"], ["legacy-x", "Free", "suspended"]].map(r =>
+            '<tr class="border-b border-white/10 last:border-0 hover:bg-white/5 transition"><td class="py-3 pr-4 font-mono text-white/90">' + escapeHtml(r[0]) + '</td><td class="py-3 pr-4 text-white/90">' + escapeHtml(r[1]) + '</td><td class="py-3">' + badge(r[2] === "active" ? "Aktív" : "Felfüggesztve", r[2] === "active" ? "green" : "amber") + '</td></tr>').join("") +
+          '</tbody></table></div>' +
+      '</div>' +
+      '<div class="glass-panel p-6">' +
+        '<h3 class="font-semibold text-lg mb-4 text-white">Biztonsági események</h3>' +
+        '<div class="space-y-3">' +
+          State.logs.filter(l => l.type === "security").slice(0, 5).map(l => '<div class="flex items-center gap-4 p-4 rounded-xl glass hover:bg-white/5 transition"><span class="text-red-400">' + ICONS.shield + '</span><div class="flex-1"><div class="text-sm font-medium text-white">' + escapeHtml(l.message) + '</div><div class="text-xs font-geist text-white/60 mt-1">' + fmtRelative(l.ts) + '</div></div></div>').join("") ||
+          '<p class="text-sm text-white/60 font-geist">Nincs biztonsági esemény.</p>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="glass-panel p-6">' +
+      '<h3 class="font-semibold text-lg mb-5 text-white">Rendszer egészség</h3>' +
+      '<div class="grid grid-cols-1 sm:grid-cols-3 gap-5">' + resourceBar("Klaszter CPU", m.cpu, "%") + resourceBar("Klaszter RAM", m.ram, "%") + resourceBar("Hálózat I/O", 34, "%") + '</div>' +
+    '</div>';
+};
+
+const CHANGELOG = [
+  { version: "2.4.0", date: "2026. január 15.", tag: "Új", changes: ["Hibrid vektor + BM25 keresés", "Új JSON query builder validációval", "Webhook eseménytámogatás", "Sötét mód finomítások"] },
+  { version: "2.3.1", date: "2025. december 2.", tag: "Javítás", changes: ["Query timeout kezelés javítva", "Sandbox újraindítás stabilitás", "API kulcs regenerálás hibajavítás"] },
+  { version: "2.3.0", date: "2025. november 10.", tag: "Új", changes: ["Audit naplók szűréssel és lapozással", "CSV export támogatás", "Rate limit dashboard"] },
+  { version: "2.2.0", date: "2025. október 1.", tag: "Új", changes: ["Több API kulcs kezelése", "Tenant aktivitás követés", "OpenAPI 3.1 specifikáció"] }
+];
+Pages.changelog = function() {
+  return sectionHeader(t("nav_changelog"), "Verzióinformációk és változási napló.") +
+    '<div class="glass-panel p-6 mb-8 flex flex-wrap items-center gap-5">' +
+      '<div><div class="text-sm font-geist text-white/60 mb-1">Jelenlegi verzió</div><div class="text-3xl font-semibold text-white">v2.4.0</div></div>' +
+      badge("Stabil", "green") + badge("Build 20260115", "gray") +
+    '</div>' +
+    '<div class="space-y-6">' + CHANGELOG.map(c =>
+      '<div class="glass-panel p-8">' +
+        '<div class="flex items-center gap-4 mb-5"><h3 class="text-xl font-semibold text-white">v' + c.version + '</h3>' + badge(c.tag, c.tag === "Új" ? "blue" : "amber") + '<span class="text-sm font-geist text-white/50 ml-auto">' + escapeHtml(c.date) + '</span></div>' +
+        '<ul class="space-y-3">' + c.changes.map(ch => '<li class="flex items-start gap-3 text-sm font-geist text-white/80"><span class="text-emerald-400 mt-0.5">' + ICONS.check + '</span>' + escapeHtml(ch) + '</li>').join("") + '</ul>' +
+      '</div>').join("") + '</div>';
+};
+
+Pages.feedback = function() {
+  return sectionHeader(t("nav_feedback"), "Felhasználói visszajelzés küldése a termékfejlesztéshez.") +
+    '<div class="max-w-2xl"><div class="glass-panel p-8">' +
+      '<h3 class="font-semibold text-lg mb-5 text-white">Hogyan értékelné az AGDB-t?</h3>' +
+      '<div id="fb-rating" class="flex gap-3 mb-6">' + [1, 2, 3, 4, 5].map(n => '<button data-rate="' + n + '" class="w-14 h-14 rounded-2xl border-2 border-white/10 hover:border-primary-blue/50 hover:bg-white/5 font-semibold text-lg transition text-white">' + n + '</button>').join("") + '</div>' +
+      '<form id="feedback-form">' +
+        field("Kategória", '<select id="fb-cat" class="' + inputCls() + '"><option class="bg-black text-white">Általános visszajelzés</option><option class="bg-black text-white">Funkciókérés</option><option class="bg-black text-white">Használhatóság</option><option class="bg-black text-white">Teljesítmény</option></select>') +
+        field("Visszajelzés", '<textarea id="fb-msg" rows="6" class="' + inputCls() + ' resize-y" placeholder="Ossza meg velünk a gondolatait..." required></textarea>') +
+        '<button type="submit" class="px-8 py-3.5 rounded-full bg-primary-blue text-white font-semibold inline-flex items-center gap-2 shadow-[0_0_15px_rgba(10,132,255,0.4)] hover:opacity-90 transition mt-2">' + ICONS.heart + 'Visszajelzés küldése</button>' +
+      '</form>' +
+    '</div></div>';
+};
+Pages.feedbackInit = function() {
+  let rating = 0;
+  document.querySelectorAll("[data-rate]").forEach(b => b.addEventListener("click", () => {
+    rating = parseInt(b.getAttribute("data-rate"));
+    document.querySelectorAll("[data-rate]").forEach(x => { const n = parseInt(x.getAttribute("data-rate")); x.className = "w-14 h-14 rounded-2xl border-2 font-semibold text-lg transition text-white " + (n <= rating ? "border-primary-blue bg-primary-blue shadow-[0_0_15px_rgba(10,132,255,0.4)]" : "border-white/10 hover:border-primary-blue/50 hover:bg-white/5"); });
+  }));
+  document.getElementById("feedback-form").addEventListener("submit", e => {
+    e.preventDefault();
+    if (!rating) { toast("Kérjük, adjon értékelést", "warning"); return; }
+    addLog("ops", "Visszajelzés elküldve", "értékelés: " + rating + "/5");
+    pushNotification("Köszönjük a visszajelzést!", "Az értékelése (" + rating + "/5) rögzítve lett.", "success");
+    toast("Köszönjük a visszajelzését!", "success");
+    document.getElementById("feedback-form").reset();
+    rating = 0;
+    document.querySelectorAll("[data-rate]").forEach(x => x.className = "w-14 h-14 rounded-2xl border-2 border-white/10 hover:border-primary-blue/50 hover:bg-white/5 font-semibold text-lg transition text-white");
+  });
+};
+</script>
+
+<script>
+window.addEventListener("hashchange", render);
+window.addEventListener("DOMContentLoaded", () => { applyTheme(); render(); });
+applyTheme();
+render();
+</script>
+</body>
+</html>

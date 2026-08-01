@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>agdb Cloud API — Documentation</title>
+<style>
+:root {
+  --bg: #0f172a; --surface: #1e293b; --surface2: #273549;
+  --border: #334155; --text: #e2e8f0; --muted: #94a3b8;
+  --accent: #60a5fa; --green: #34d399; --yellow: #fbbf24;
+  --red: #f87171; --purple: #a78bfa; --orange: #fb923c;
+  --code-bg: #0d1117;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Layout */
+.layout { display: flex; min-height: 100vh; }
+nav { width: 260px; min-width: 260px; background: var(--surface); border-right: 1px solid var(--border); position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 1.5rem 0; }
+main { flex: 1; max-width: 860px; padding: 2.5rem 2rem; }
+
+/* Nav */
+.nav-logo { padding: 0 1.25rem 1.5rem; border-bottom: 1px solid var(--border); margin-bottom: 1rem; }
+.nav-logo h1 { font-size: 1.1rem; font-weight: 700; color: var(--text); }
+.nav-logo span { font-size: 0.75rem; color: var(--muted); }
+.nav-section { padding: 0.25rem 1.25rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-top: 1rem; margin-bottom: 0.25rem; }
+nav a { display: block; padding: 0.35rem 1.25rem; font-size: 0.875rem; color: var(--muted); border-left: 2px solid transparent; }
+nav a:hover, nav a.active { color: var(--text); background: var(--surface2); border-left-color: var(--accent); text-decoration: none; }
+
+/* Content */
+.section { margin-bottom: 3.5rem; }
+h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+h3 { font-size: 1.1rem; font-weight: 600; margin: 2rem 0 0.75rem; color: var(--text); }
+p { color: var(--muted); margin-bottom: 1rem; }
+.lead { font-size: 1rem; color: var(--text); }
+
+/* Badges */
+.method { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 700; font-family: monospace; margin-right: 0.5rem; }
+.GET    { background: #1a3a2a; color: var(--green); }
+.POST   { background: #1a2a3a; color: var(--accent); }
+.DELETE { background: #3a1a1a; color: var(--red); }
+.auth-badge { display: inline-block; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.7rem; background: #2d2a1a; color: var(--yellow); margin-left: 0.5rem; }
+.public-badge { display: inline-block; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.7rem; background: #1a2d1a; color: var(--green); margin-left: 0.5rem; }
+
+/* Endpoint card */
+.endpoint { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 1.25rem; overflow: hidden; }
+.endpoint-header { padding: 0.875rem 1.25rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none; }
+.endpoint-header:hover { background: var(--surface2); }
+.endpoint-path { font-family: monospace; font-size: 0.875rem; color: var(--text); flex: 1; }
+.endpoint-desc { font-size: 0.8rem; color: var(--muted); }
+.endpoint-body { padding: 1.25rem; border-top: 1px solid var(--border); display: none; }
+.endpoint-body.open { display: block; }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; font-size: 0.875rem; margin-bottom: 1rem; }
+th { text-align: left; padding: 0.5rem 0.75rem; background: var(--surface2); color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+td { padding: 0.5rem 0.75rem; border-top: 1px solid var(--border); color: var(--text); }
+td code { background: var(--code-bg); padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.8rem; color: var(--accent); }
+.required { color: var(--red); font-size: 0.7rem; margin-left: 0.25rem; }
+.optional { color: var(--muted); font-size: 0.7rem; margin-left: 0.25rem; }
+
+/* Code blocks */
+.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 0; }
+.tab { padding: 0.5rem 1rem; font-size: 0.8rem; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.code-block { position: relative; }
+.code-panel { display: none; }
+.code-panel.active { display: block; }
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 0 0 6px 6px; padding: 1.25rem; overflow-x: auto; font-size: 0.8rem; line-height: 1.6; }
+pre code { font-family: 'Fira Code', 'JetBrains Mono', monospace; color: #e6edf3; }
+.copy-btn { position: absolute; top: 0.5rem; right: 0.5rem; background: var(--surface2); border: 1px solid var(--border); color: var(--muted); padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.7rem; cursor: pointer; }
+.copy-btn:hover { color: var(--text); }
+
+/* Syntax highlighting */
+.kw  { color: #ff7b72; }
+.str { color: #a5d6ff; }
+.cmt { color: #8b949e; font-style: italic; }
+.fn  { color: #d2a8ff; }
+.num { color: #79c0ff; }
+.cls { color: #ffa657; }
+.var { color: #e6edf3; }
+.op  { color: #ff7b72; }
+
+/* Response */
+.response-label { font-size: 0.75rem; color: var(--muted); margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.status-ok { color: var(--green); }
+.status-err { color: var(--red); }
+
+/* Callout */
+.callout { border-left: 3px solid var(--accent); background: var(--surface); padding: 0.875rem 1rem; border-radius: 0 6px 6px 0; margin: 1rem 0; font-size: 0.875rem; color: var(--text); }
+.callout.warn { border-color: var(--yellow); }
+.callout.tip { border-color: var(--green); }
+
+/* Install box */
+.install-box { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.875rem 1.25rem; font-family: monospace; font-size: 0.875rem; color: #e6edf3; margin: 0.75rem 0; }
+
+/* Base URL bar */
+.base-url { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.625rem 1rem; font-family: monospace; font-size: 0.875rem; color: var(--green); margin: 1rem 0; }
+
+@media (max-width: 768px) {
+  nav { display: none; }
+  main { padding: 1.5rem 1rem; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav>
+  <div class="nav-logo">
+    <h1>agdb Cloud</h1>
+    <span>API v1 Documentation</span>
+  </div>
+  <div class="nav-section">Getting Started</div>
+  <a href="#overview">Overview</a>
+  <a href="#quickstart">Quickstart</a>
+  <a href="#auth-guide">Authentication</a>
+  <div class="nav-section">Client Libraries</div>
+  <a href="#python-client">Python Client</a>
+  <a href="#zig-client">Zig Client</a>
+  <div class="nav-section">API Reference</div>
+  <a href="#health">Health</a>
+  <a href="#registration">Registration</a>
+  <a href="#account">Account</a>
+  <a href="#apikeys">API Keys</a>
+  <a href="#sandbox">Sandbox</a>
+  <a href="#databases">Databases</a>
+  <a href="#records">Records</a>
+  <a href="#search">Search</a>
+  <a href="#stats">Stats</a>
+  <a href="#webhooks">Webhooks</a>
+</nav>
+<main>
+
+<!-- Overview -->
+<div class="section" id="overview">
+  <h2>Overview</h2>
+  <p class="lead">agdb is a high-performance, persistent database engine written in Zig, designed for hybrid search (full-text + vector), multi-tenancy, and low-latency operations.</p>
+  <div class="base-url">https://agdb.replit.app</div>
+  <p>All API endpoints are prefixed with <code>/v1</code>. Authenticated endpoints require a Bearer token in the <code>Authorization</code> header.</p>
+  <div class="callout">
+    <strong>Base URL:</strong> <code>https://agdb.replit.app</code><br>
+    All requests and responses use <code>application/json</code>.
+  </div>
+</div>
+
+<!-- Quickstart -->
+<div class="section" id="quickstart">
+  <h2>Quickstart</h2>
+  <p>Get up and running in under 2 minutes.</p>
+
+  <h3>1. Register an account</h3>
+  <div class="code-block">
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab(this,'qs-reg')">curl</div>
+      <div class="tab" onclick="switchTab(this,'qs-reg')">Python</div>
+      <div class="tab" onclick="switchTab(this,'qs-reg')">Zig</div>
+    </div>
+    <div class="code-panel active" id="qs-reg-0">
+<pre><code>curl -X POST https://agdb.replit.app/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "you@example.com"}'</code></pre>
+    </div>
+    <div class="code-panel" id="qs-reg-1">
+<pre><code><span class="kw">import</span> requests
+
+client = AgdbClient(<span class="str">"https://agdb.replit.app"</span>)
+account = client.register(<span class="str">"you@example.com"</span>)
+<span class="fn">print</span>(account[<span class="str">"api_key"</span>])  <span class="cmt"># save this!</span></code></pre>
+    </div>
+    <div class="code-panel" id="qs-reg-2">
+<pre><code><span class="kw">const</span> client = <span class="kw">try</span> AgdbClient.init(allocator, <span class="str">"https://agdb.replit.app"</span>, <span class="kw">null</span>);
+<span class="kw">const</span> account = <span class="kw">try</span> client.register(<span class="str">"you@example.com"</span>);
+<span class="cmt">// account.api_key — save this!</span></code></pre>
+    </div>
+  </div>
+
+  <h3>2. Insert a document</h3>
+  <div class="code-block">
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab(this,'qs-ins')">curl</div>
+    </div>
+    <div class="code-panel active" id="qs-ins-0">
+<pre><code>curl -X POST https://agdb.replit.app/v1/databases/documents/records \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"record": {"title": "Hello World", "body": "My first document"}}'</code></pre>
+    </div>
+  </div>
+
+  <h3>3. Search</h3>
+  <div class="code-block">
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab(this,'qs-srch')">curl</div>
+    </div>
+    <div class="code-panel active" id="qs-srch-0">
+<pre><code>curl -X POST https://agdb.replit.app/v1/databases/documents/search \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "hello", "top_k": 5}'</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- Auth guide -->
+<div class="section" id="auth-guide">
+  <h2>Authentication</h2>
+  <p>All authenticated endpoints require a Bearer token in the <code>Authorization</code> header.</p>
+  <div class="install-box">Authorization: Bearer agdb_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</div>
+  <div class="callout warn">Keep your API key secret. It grants full access to your tenant database.</div>
+</div>
+
+<!-- Python client -->
+<div class="section" id="python-client">
+  <h2>Python Client</h2>
+  <p>No dependencies beyond the standard library. Copy the class below into your project.</p>
+
+  <div class="install-box"># No pip install needed — pure stdlib</div>
+
+<pre><code><span class="cmt">"""agdb Cloud Python client — copy & paste, no dependencies"""</span>
+<span class="kw">import</span> urllib.request, urllib.error, json
+<span class="kw">from</span> typing <span class="kw">import</span> Any, Optional
+
+<span class="kw">class</span> <span class="cls">AgdbError</span>(Exception):
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, status: int, message: str):
+        <span class="fn">super</span>().__init__(message)
+        self.status = status
+
+<span class="kw">class</span> <span class="cls">AgdbClient</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, base_url: str, api_key: Optional[str] = None):
+        self.base_url = base_url.rstrip(<span class="str">"/"</span>)
+        self.api_key  = api_key
+
+    <span class="kw">def</span> <span class="fn">_req</span>(self, method: str, path: str, body: Any = None, auth: bool = True) -> Any:
+        url  = self.base_url + path
+        data = json.dumps(body).encode() if body is not None else None
+        headers = {<span class="str">"Content-Type"</span>: <span class="str">"application/json"</span>}
+        if auth and self.api_key:
+            headers[<span class="str">"Authorization"</span>] = <span class="str">f"Bearer {self.api_key}"</span>
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=<span class="num">30</span>) as r:
+                return json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            msg = json.loads(e.read().decode()).get(<span class="str">"error"</span>, str(e))
+            raise AgdbError(e.code, msg)
+
+    <span class="cmt"># ── Auth ──────────────────────────────────────────────────────────────────</span>
+
+    <span class="kw">def</span> <span class="fn">register</span>(self, email: str) -> dict:
+        <span class="str">"""Register a new account. Returns {"tenant_id", "api_key"}."""</span>
+        return self._req(<span class="str">"POST"</span>, <span class="str">"/v1/auth/register"</span>, {<span class="str">"email"</span>: email}, auth=False)
+
+    <span class="kw">def</span> <span class="fn">login</span>(self, api_key: str) -> dict:
+        <span class="str">"""Verify an API key and return tenant info."""</span>
+        self.api_key = api_key
+        return self._req(<span class="str">"POST"</span>, <span class="str">"/v1/auth/login"</span>, {<span class="str">"api_key"</span>: api_key}, auth=False)
+
+    <span class="cmt"># ── Account ───────────────────────────────────────────────────────────────</span>
+
+    <span class="kw">def</span> <span class="fn">get_tenant</span>(self) -> dict:
+        <span class="str">"""Get current tenant info."""</span>
+        return self._req(<span class="str">"GET"</span>, <span class="str">"/v1/tenant"</span>)
+
+    <span class="kw">def</span> <span class="fn">delete_account</span>(self) -> dict:
+        <span class="str">"""Permanently delete account and all data."""</span>
+        return self._req(<span class="str">"DELETE"</span>, <span class="str">"/v1/account"</span>)
+
+    <span class="cmt"># ── API Keys ──────────────────────────────────────────────────────────────</span>
+
+    <span class="kw">def</span> <span class="fn">list_keys</span>(self) -> list:
+        return self._req(<span class="str">"GET"</span>, <span class="str">"/v1/apikeys"</span>)[<span class="str">"keys"</span>]
+
+    <span class="kw">def</span> <span class="fn">rotate_key</span>(self, key_id: str) -> dict:
+        <span class="str">"""Rotate (replace) an API key. The old key is immediately invalidated."""</span>
+        return self._req(<span class="str">"POST"</span>, <span class="str">f"/v1/apikeys/{key_id}/rotate"</span>)
+
+    <span class="kw">def</span> <span class="fn">revoke_key</span>(self, key_id: str) -> dict:
+        return self._req(<span class="str">"DELETE"</span>, <span class="str">f"/v1/apikeys/{key_id}"</span>)
+
+    <span class="cmt"># ── Records ───────────────────────────────────────────────────────────────</span>
+
+    <span class="kw">def</span> <span class="fn">insert</span>(self, record: dict, db: str = <span class="str">"documents"</span>) -> dict:
+        <span class="str">"""Insert a record. Returns {"id": ...}."""</span>
+        return self._req(<span class="str">"POST"</span>, <span class="str">f"/v1/databases/{db}/records"</span>, {<span class="str">"record"</span>: record})
+
+    <span class="kw">def</span> <span class="fn">get</span>(self, record_id: int, db: str = <span class="str">"documents"</span>) -> dict:
+        return self._req(<span class="str">"GET"</span>, <span class="str">f"/v1/databases/{db}/records/{record_id}"</span>)
+
+    <span class="kw">def</span> <span class="fn">delete</span>(self, record_id: int, db: str = <span class="str">"documents"</span>) -> dict:
+        return self._req(<span class="str">"DELETE"</span>, <span class="str">f"/v1/databases/{db}/records/{record_id}"</span>)
+
+    <span class="cmt"># ── Search ────────────────────────────────────────────────────────────────</span>
+
+    <span class="kw">def</span> <span class="fn">search</span>(self, query: str, top_k: int = <span class="num">10</span>, db: str = <span class="str">"documents"</span>) -> list:
+        <span class="str">"""Hybrid full-text + vector search."""</span>
+        resp = self._req(<span class="str">"POST"</span>, <span class="str">f"/v1/databases/{db}/search"</span>,
+                         {<span class="str">"query"</span>: query, <span class="str">"top_k"</span>: top_k})
+        return resp.get(<span class="str">"results"</span>, resp)
+
+    <span class="cmt"># ── Sandbox ───────────────────────────────────────────────────────────────</span>
+
+    <span class="kw">def</span> <span class="fn">sandbox_status</span>(self) -> dict:
+        return self._req(<span class="str">"GET"</span>, <span class="str">"/v1/sandbox"</span>)
+
+    <span class="kw">def</span> <span class="fn">sandbox_start</span>(self) -> dict:
+        return self._req(<span class="str">"POST"</span>, <span class="str">"/v1/sandbox/start"</span>)
+
+    <span class="kw">def</span> <span class="fn">sandbox_stop</span>(self) -> dict:
+        return self._req(<span class="str">"POST"</span>, <span class="str">"/v1/sandbox/stop"</span>)
+
+    <span class="kw">def</span> <span class="fn">sandbox_restart</span>(self) -> dict:
+        return self._req(<span class="str">"POST"</span>, <span class="str">"/v1/sandbox/restart"</span>)
+
+    <span class="cmt"># ── Stats ─────────────────────────────────────────────────────────────────</span>
+
+    <span class="kw">def</span> <span class="fn">stats</span>(self, db: str = <span class="str">"documents"</span>) -> dict:
+        return self._req(<span class="str">"GET"</span>, <span class="str">f"/v1/databases/{db}/stats"</span>)
+
+    <span class="cmt"># ── Health ────────────────────────────────────────────────────────────────</span>
+
+    <span class="kw">def</span> <span class="fn">health</span>(self) -> dict:
+        return self._req(<span class="str">"GET"</span>, <span class="str">"/v1/health"</span>, auth=False)
+
+
+<span class="cmt"># ── Usage example ──────────────────────────────────────────────────────────</span>
+<span class="kw">if</span> __name__ == <span class="str">"__main__"</span>:
+    BASE = <span class="str">"https://agdb.replit.app"</span>
+
+    <span class="cmt"># Register</span>
+    client = AgdbClient(BASE)
+    account = client.register(<span class="str">"alice@example.com"</span>)
+    client.api_key = account[<span class="str">"api_key"</span>]
+    <span class="fn">print</span>(<span class="str">"Registered:"</span>, account[<span class="str">"tenant_id"</span>])
+
+    <span class="cmt"># Insert documents</span>
+    client.insert({<span class="str">"title"</span>: <span class="str">"Zig is fast"</span>, <span class="str">"body"</span>: <span class="str">"Zig compiles to tight machine code."</span>})
+    client.insert({<span class="str">"title"</span>: <span class="str">"Python is easy"</span>, <span class="str">"body"</span>: <span class="str">"Python has clear syntax."</span>})
+
+    <span class="cmt"># Search</span>
+    results = client.search(<span class="str">"fast compiled language"</span>, top_k=<span class="num">5</span>)
+    <span class="fn">print</span>(<span class="str">"Results:"</span>, results)</code></pre>
+</div>
+
+<!-- Zig client -->
+<div class="section" id="zig-client">
+  <h2>Zig Client</h2>
+  <p>Pure Zig, no external dependencies. Uses <code>std.http.Client</code> (Zig 0.14+).</p>
+
+<pre><code><span class="cmt">// agdb Cloud Zig client — Zig 0.14+
+// Add to your build.zig: no external deps needed</span>
+<span class="kw">const</span> std = @import(<span class="str">"std"</span>);
+
+<span class="kw">pub const</span> AgdbError = <span class="kw">error</span> {
+    Unauthorized, NotFound, Conflict, ServerError, BadResponse,
+};
+
+<span class="kw">pub const</span> AgdbClient = <span class="kw">struct</span> {
+    allocator: std.mem.Allocator,
+    base_url:  []<span class="kw">const</span> u8,
+    api_key:   ?[]<span class="kw">const</span> u8,
+    client:    std.http.Client,
+
+    <span class="kw">pub fn</span> <span class="fn">init</span>(allocator: std.mem.Allocator, base_url: []<span class="kw">const</span> u8, api_key: ?[]<span class="kw">const</span> u8) AgdbClient {
+        <span class="kw">return</span> .{
+            .allocator = allocator,
+            .base_url  = base_url,
+            .api_key   = api_key,
+            .client    = .{ .allocator = allocator },
+        };
+    }
+
+    <span class="kw">pub fn</span> <span class="fn">deinit</span>(self: *AgdbClient) void { self.client.deinit(); }
+
+    <span class="cmt">// Low-level request helper</span>
+    <span class="kw">fn</span> <span class="fn">request</span>(
+        self: *AgdbClient, method: std.http.Method,
+        path: []<span class="kw">const</span> u8, body: ?[]<span class="kw">const</span> u8, auth: bool,
+    ) ![]u8 {
+        <span class="kw">const</span> url = <span class="kw">try</span> std.fmt.allocPrint(self.allocator, <span class="str">"{s}{s}"</span>, .{ self.base_url, path });
+        <span class="kw">defer</span> self.allocator.free(url);
+        <span class="kw">const</span> uri = <span class="kw">try</span> std.Uri.parse(url);
+
+        <span class="kw">var</span> extra = std.ArrayList(std.http.Header).init(self.allocator);
+        <span class="kw">defer</span> extra.deinit();
+        <span class="kw">try</span> extra.append(.{ .name = <span class="str">"Content-Type"</span>, .value = <span class="str">"application/json"</span> });
+        <span class="kw">if</span> (auth) <span class="kw">if</span> (self.api_key) |k| {
+            <span class="kw">const</span> bearer = <span class="kw">try</span> std.fmt.allocPrint(self.allocator, <span class="str">"Bearer {s}"</span>, .{k});
+            <span class="kw">defer</span> self.allocator.free(bearer);
+            <span class="kw">try</span> extra.append(.{ .name = <span class="str">"Authorization"</span>, .value = bearer });
+        };
+
+        <span class="kw">var</span> hdr_buf: [<span class="num">8192</span>]u8 = undefined;
+        <span class="kw">var</span> req = <span class="kw">try</span> self.client.open(method, uri, .{
+            .server_header_buffer = &hdr_buf,
+            .extra_headers = extra.items,
+        });
+        <span class="kw">defer</span> req.deinit();
+
+        <span class="kw">if</span> (body) |b| { req.transfer_encoding = .{ .content_length = b.len }; }
+        <span class="kw">try</span> req.send();
+        <span class="kw">if</span> (body) |b| <span class="kw">try</span> req.writeAll(b);
+        <span class="kw">try</span> req.finish();
+        <span class="kw">try</span> req.wait();
+
+        <span class="kw">return switch</span> (req.response.status) {
+            .ok, .created, .no_content => req.reader().readAllAlloc(self.allocator, <span class="num">16</span> * <span class="num">1024</span> * <span class="num">1024</span>),
+            .unauthorized => AgdbError.Unauthorized,
+            .not_found    => AgdbError.NotFound,
+            .conflict     => AgdbError.Conflict,
+            <span class="kw">else</span>          => AgdbError.ServerError,
+        };
+    }
+
+    <span class="cmt">// ── Auth ──────────────────────────────────────────────────────────────────</span>
+
+    <span class="kw">pub fn</span> <span class="fn">register</span>(self: *AgdbClient, email: []<span class="kw">const</span> u8) ![]u8 {
+        <span class="kw">const</span> body = <span class="kw">try</span> std.fmt.allocPrint(self.allocator, <span class="str">"{{\\"email\\":\\"{s}\\"}}"</span>, .{email});
+        <span class="kw">defer</span> self.allocator.free(body);
+        <span class="kw">return</span> self.request(.POST, <span class="str">"/v1/auth/register"</span>, body, <span class="kw">false</span>);
+    }
+
+    <span class="kw">pub fn</span> <span class="fn">login</span>(self: *AgdbClient, api_key: []<span class="kw">const</span> u8) ![]u8 {
+        self.api_key = api_key;
+        <span class="kw">const</span> body = <span class="kw">try</span> std.fmt.allocPrint(self.allocator, <span class="str">"{{\\"api_key\\":\\"{s}\\"}}"</span>, .{api_key});
+        <span class="kw">defer</span> self.allocator.free(body);
+        <span class="kw">return</span> self.request(.POST, <span class="str">"/v1/auth/login"</span>, body, <span class="kw">false</span>);
+    }
+
+    <span class="cmt">// ── Records ───────────────────────────────────────────────────────────────</span>
+
+    <span class="kw">pub fn</span> <span class="fn">insert</span>(self: *AgdbClient, record_json: []<span class="kw">const</span> u8, db: []<span class="kw">const</span> u8) ![]u8 {
+        <span class="kw">const</span> path = <span class="kw">try</span> std.fmt.allocPrint(self.allocator, <span class="str">"/v1/databases/{s}/records"</span>, .{db});
+        <span class="kw">defer</span> self.allocator.free(path);
+        <span class="kw">const</span> body = <span class="kw">try</span> std.fmt.allocPrint(self.allocator, <span class="str">"{{\\"record\\":{s}}}"</span>, .{record_json});
+        <span class="kw">defer</span> self.allocator.free(body);
+        <span class="kw">return</span> self.request(.POST, path, body, <span class="kw">true</span>);
+    }
+
+    <span class="kw">pub fn</span> <span class="fn">get</span>(self: *AgdbClient, id: u64, db: []<span class="kw">const</span> u8) ![]u8 {
+        <span class="kw">const</span> path = <span class="kw">try</span> std.fmt.allocPrint(self.allocator, <span class="str">"/v1/databases/{s}/records/{d}"</span>, .{ db, id });
+        <span class="kw">defer</span> self.allocator.free(path);
+        <span class="kw">return</span> self.request(.GET, path, <span class="kw">null</span>, <span class="kw">true</span>);
+    }
+
+    <span class="kw">pub fn</span> <span class="fn">delete</span>(self: *AgdbClient, id: u64, db: []<span class="kw">const</span> u8) ![]u8 {
+        <span class="kw">const</span> path = <span class="kw">try</span> std.fmt.allocPrint(self.allocator, <span class="str">"/v1/databases/{s}/records/{d}"</span>, .{ db, id });
+        <span class="kw">defer</span> self.allocator.free(path);
+        <span class="kw">return</span> self.request(.DELETE, path, <span class="kw">null</span>, <span class="kw">true</span>);
+    }
+
+    <span class="cmt">// ── Search ────────────────────────────────────────────────────────────────</span>
+
+    <span class="kw">pub fn</span> <span class="fn">search</span>(self: *AgdbClient, query: []<span class="kw">const</span> u8, top_k: u32, db: []<span class="kw">const</span> u8) ![]u8 {
+        <span class="kw">const</span> path = <span class="kw">try</span> std.fmt.allocPrint(self.allocator, <span class="str">"/v1/databases/{s}/search"</span>, .{db});
+        <span class="kw">defer</span> self.allocator.free(path);
+        <span class="kw">const</span> body = <span class="kw">try</span> std.fmt.allocPrint(self.allocator,
+            <span class="str">"{{\\"query\\":\\"{s}\\",\\"top_k\\":{d}}}"</span>, .{ query, top_k });
+        <span class="kw">defer</span> self.allocator.free(body);
+        <span class="kw">return</span> self.request(.POST, path, body, <span class="kw">true</span>);
+    }
+
+    <span class="cmt">// ── Health ────────────────────────────────────────────────────────────────</span>
+
+    <span class="kw">pub fn</span> <span class="fn">health</span>(self: *AgdbClient) ![]u8 {
+        <span class="kw">return</span> self.request(.GET, <span class="str">"/v1/health"</span>, <span class="kw">null</span>, <span class="kw">false</span>);
+    }
+};
+
+<span class="cmt">// ── Usage example ──────────────────────────────────────────────────────────</span>
+<span class="kw">pub fn</span> <span class="fn">main</span>() !void {
+    <span class="kw">var</span> gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    <span class="kw">defer</span> _ = gpa.deinit();
+    <span class="kw">const</span> alloc = gpa.allocator();
+
+    <span class="kw">var</span> client = AgdbClient.init(alloc, <span class="str">"https://agdb.replit.app"</span>, <span class="kw">null</span>);
+    <span class="kw">defer</span> client.deinit();
+
+    <span class="cmt">// Register</span>
+    <span class="kw">const</span> account_json = <span class="kw">try</span> client.register(<span class="str">"alice@example.com"</span>);
+    <span class="kw">defer</span> alloc.free(account_json);
+    std.debug.print(<span class="str">"Account: {s}\n"</span>, .{account_json});
+
+    <span class="cmt">// Insert</span>
+    client.api_key = <span class="str">"agdb_yourkey"</span>;
+    <span class="kw">const</span> r = <span class="kw">try</span> client.insert(
+        <span class="str">"{\"title\":\"Zig is fast\",\"body\":\"Tight machine code.\"}"</span>, <span class="str">"documents"</span>);
+    <span class="kw">defer</span> alloc.free(r);
+
+    <span class="cmt">// Search</span>
+    <span class="kw">const</span> results = <span class="kw">try</span> client.search(<span class="str">"fast compiled"</span>, <span class="num">5</span>, <span class="str">"documents"</span>);
+    <span class="kw">defer</span> alloc.free(results);
+    std.debug.print(<span class="str">"Search: {s}\n"</span>, .{results});
+}</code></pre>
+</div>
+
+<!-- Health -->
+<div class="section" id="health">
+  <h2>Health</h2>
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/v1/health</span>
+      <span class="public-badge">public</span>
+      <span class="endpoint-desc">Server health and version</span>
+    </div>
+    <div class="endpoint-body open">
+      <p>No authentication required. Use to check if the server is reachable.</p>
+      <div class="response-label">Response <span class="status-ok">200</span></div>
+<pre><code>{"status": "ok", "version": "2.4.0"}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- Registration -->
+<div class="section" id="registration">
+  <h2>Registration</h2>
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/v1/auth/register</span>
+      <span class="public-badge">public</span>
+      <span class="endpoint-desc">Create a new tenant account</span>
+    </div>
+    <div class="endpoint-body open">
+      <h3>Request body</h3>
+      <table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+      <tbody><tr><td><code>email</code><span class="required">required</span></td><td>string</td><td>A valid email address (max 254 chars)</td></tr></tbody></table>
+      <div class="response-label">Response <span class="status-ok">201 Created</span></div>
+<pre><code>{
+  "tenant_id": "42",
+  "api_key":   "agdb_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "created_at": 1748123456,
+  "status":    "active"
+}</code></pre>
+      <div class="response-label">Errors</div>
+      <table><thead><tr><th>Status</th><th>Reason</th></tr></thead>
+      <tbody>
+        <tr><td><span class="status-err">400</span></td><td>Invalid or missing email</td></tr>
+        <tr><td><span class="status-err">409</span></td><td>Email already registered</td></tr>
+      </tbody></table>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/v1/auth/login</span>
+      <span class="public-badge">public</span>
+      <span class="endpoint-desc">Verify an API key and get tenant info</span>
+    </div>
+    <div class="endpoint-body">
+      <table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+      <tbody><tr><td><code>api_key</code><span class="required">required</span></td><td>string</td><td>Your API key</td></tr></tbody></table>
+      <div class="response-label">Response <span class="status-ok">200</span></div>
+<pre><code>{"tenant_id": "42", "email": "you@example.com", "status": "active", "created_at": 1748123456}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- Account -->
+<div class="section" id="account">
+  <h2>Account</h2>
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/v1/tenant</span>
+      <span class="auth-badge">auth</span>
+      <span class="endpoint-desc">Get current tenant information</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="response-label">Response <span class="status-ok">200</span></div>
+<pre><code>{"tenant_id": "42", "email": "you@example.com", "status": "active", "region": "eu-west-1", "created_at": 1748123456, "data_path": "/var/lib/agdb/tenants/42"}</code></pre>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method DELETE">DELETE</span>
+      <span class="endpoint-path">/v1/account</span>
+      <span class="auth-badge">auth</span>
+      <span class="endpoint-desc">Delete account and all data permanently</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="callout warn">This action is irreversible. All records and data are deleted immediately.</div>
+      <div class="response-label">Response <span class="status-ok">200</span></div>
+<pre><code>{"status": "deleted"}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- API Keys -->
+<div class="section" id="apikeys">
+  <h2>API Keys</h2>
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/v1/apikeys</span>
+      <span class="auth-badge">auth</span>
+      <span class="endpoint-desc">List all API keys</span>
+    </div>
+    <div class="endpoint-body">
+<pre><code>{"keys": [{"id": "key_42", "name": "Primary Key", "key": "agdb_xxx", "created_at": 1748123456, "status": "active", "scope": "full"}]}</code></pre>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/v1/apikeys/{key_id}/rotate</span>
+      <span class="auth-badge">auth</span>
+      <span class="endpoint-desc">Rotate (replace) an API key</span>
+    </div>
+    <div class="endpoint-body">
+      <p>Generates a new key and immediately invalidates the old one. The response contains the new key — save it.</p>
+<pre><code>{"id": "key_42", "key": "agdb_newkey", "created_at": 1748123999, "status": "active"}</code></pre>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method DELETE">DELETE</span>
+      <span class="endpoint-path">/v1/apikeys/{key_id}</span>
+      <span class="auth-badge">auth</span>
+      <span class="endpoint-desc">Revoke an API key</span>
+    </div>
+    <div class="endpoint-body">
+<pre><code>{"status": "revoked"}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- Sandbox -->
+<div class="section" id="sandbox">
+  <h2>Sandbox</h2>
+  <p>Each tenant runs in an isolated Linux sandbox. The sandbox is started automatically on first request, but can be managed manually.</p>
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/v1/sandbox</span>
+      <span class="auth-badge">auth</span>
+      <span class="endpoint-desc">Get sandbox status</span>
+    </div>
+    <div class="endpoint-body">
+<pre><code>{"status": "running", "started_at": 1748123456, "restarts": 0, "region": "eu-west-1"}</code></pre>
+    </div>
+  </div>
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/v1/sandbox/start</span>
+      <span class="auth-badge">auth</span>
+    </div>
+    <div class="endpoint-body"><pre><code>{"status": "running"}</code></pre></div>
+  </div>
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/v1/sandbox/stop</span>
+      <span class="auth-badge">auth</span>
+    </div>
+    <div class="endpoint-body"><pre><code>{"status": "stopped"}</code></pre></div>
+  </div>
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/v1/sandbox/restart</span>
+      <span class="auth-badge">auth</span>
+    </div>
+    <div class="endpoint-body"><pre><code>{"status": "running"}</code></pre></div>
+  </div>
+</div>
+
+<!-- Databases -->
+<div class="section" id="databases">
+  <h2>Databases</h2>
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/v1/databases</span>
+      <span class="auth-badge">auth</span>
+      <span class="endpoint-desc">List available databases</span>
+    </div>
+    <div class="endpoint-body">
+<pre><code>{"databases": [{"name": "documents", "status": "active"}]}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- Records -->
+<div class="section" id="records">
+  <h2>Records</h2>
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/v1/databases/{db}/records</span>
+      <span class="auth-badge">auth</span>
+      <span class="endpoint-desc">Insert a record</span>
+    </div>
+    <div class="endpoint-body">
+      <table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+      <tbody><tr><td><code>record</code><span class="required">required</span></td><td>object</td><td>Any JSON object to store and index</td></tr></tbody></table>
+<pre><code>// Request
+{"record": {"title": "My document", "body": "Full text content here", "tags": ["zig", "database"]}}
+
+// Response 201
+{"id": 1, "status": "ok"}</code></pre>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/v1/databases/{db}/records/{id}</span>
+      <span class="auth-badge">auth</span>
+      <span class="endpoint-desc">Retrieve a record by ID</span>
+    </div>
+    <div class="endpoint-body">
+<pre><code>// Response 200
+{"id": 1, "title": "My document", "body": "Full text content here", "tags": ["zig", "database"]}</code></pre>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method DELETE">DELETE</span>
+      <span class="endpoint-path">/v1/databases/{db}/records/{id}</span>
+      <span class="auth-badge">auth</span>
+      <span class="endpoint-desc">Delete a record</span>
+    </div>
+    <div class="endpoint-body">
+<pre><code>{"status": "deleted", "id": 1}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- Search -->
+<div class="section" id="search">
+  <h2>Search</h2>
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/v1/databases/{db}/search</span>
+      <span class="auth-badge">auth</span>
+      <span class="endpoint-desc">Hybrid full-text + vector search</span>
+    </div>
+    <div class="endpoint-body">
+      <table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>query</code><span class="required">required</span></td><td>string</td><td>Search query text</td></tr>
+        <tr><td><code>top_k</code><span class="optional">optional</span></td><td>integer</td><td>Max results to return (default: 10)</td></tr>
+      </tbody></table>
+<pre><code>// Request
+{"query": "fast compiled language", "top_k": 5}
+
+// Response 200
+{"results": [{"id": 1, "score": 0.92, "title": "Zig is fast", ...}, ...]}</code></pre>
+      <div class="callout tip">The <code>/v1/databases/{db}/query</code> endpoint accepts the same body and is an alias for search.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="section" id="stats">
+  <h2>Stats</h2>
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/v1/databases/{db}/stats</span>
+      <span class="auth-badge">auth</span>
+      <span class="endpoint-desc">Database statistics</span>
+    </div>
+    <div class="endpoint-body">
+<pre><code>{"records": 1024, "databases": ["documents"], "status": "healthy"}</code></pre>
+    </div>
+  </div>
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/v1/stats</span>
+      <span class="auth-badge">auth</span>
+      <span class="endpoint-desc">Overall tenant statistics</span>
+    </div>
+    <div class="endpoint-body">
+<pre><code>{"records": 1024, "databases": ["documents"], "status": "healthy"}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- Webhooks -->
+<div class="section" id="webhooks">
+  <h2>Webhooks</h2>
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/v1/webhooks</span>
+      <span class="auth-badge">auth</span>
+      <span class="endpoint-desc">List webhooks</span>
+    </div>
+    <div class="endpoint-body">
+<pre><code>{"webhooks": [{"id": "wh_1748123456", "name": "My hook", "url": "https://...", "events": ["insert"], "status": "active"}]}</code></pre>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/v1/webhooks</span>
+      <span class="auth-badge">auth</span>
+      <span class="endpoint-desc">Create a webhook</span>
+    </div>
+    <div class="endpoint-body">
+      <table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>url</code><span class="required">required</span></td><td>string</td><td>HTTPS endpoint to notify</td></tr>
+        <tr><td><code>name</code><span class="optional">optional</span></td><td>string</td><td>Friendly name</td></tr>
+        <tr><td><code>events</code><span class="optional">optional</span></td><td>array</td><td>Event types, e.g. <code>["insert", "delete"]</code></td></tr>
+      </tbody></table>
+<pre><code>// Request
+{"name": "Notify Slack", "url": "https://hooks.slack.com/...", "events": ["insert"]}
+
+// Response 201
+{"id": "wh_1748123456", "name": "Notify Slack", "url": "...", "events": ["insert"], "created_at": 1748123456, "status": "active"}</code></pre>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header" onclick="toggle(this)">
+      <span class="method DELETE">DELETE</span>
+      <span class="endpoint-path">/v1/webhooks/{id}</span>
+      <span class="auth-badge">auth</span>
+      <span class="endpoint-desc">Delete a webhook</span>
+    </div>
+    <div class="endpoint-body"><pre><code>{"status": "deleted"}</code></pre></div>
+  </div>
+</div>
+
+</main>
+</div>
+
+<script>
+function toggle(header) {
+  const body = header.nextElementSibling;
+  body.classList.toggle('open');
+}
+function switchTab(tab, prefix) {
+  const panel = tab.closest('.code-block');
+  const tabs = panel.querySelectorAll('.tab');
+  const idx = Array.from(tabs).indexOf(tab);
+  tabs.forEach((t, i) => { t.classList.toggle('active', i === idx); });
+  panel.querySelectorAll('.code-panel').forEach((p, i) => {
+    p.classList.toggle('active', i === idx);
+  });
+}
+
+// Copy buttons
+document.querySelectorAll('pre').forEach(pre => {
+  const btn = document.createElement('button');
+  btn.className = 'copy-btn';
+  btn.textContent = 'copy';
+  btn.onclick = () => {
+    navigator.clipboard.writeText(pre.textContent).then(() => {
+      btn.textContent = 'copied!';
+      setTimeout(() => btn.textContent = 'copy', 1500);
+    });
+  };
+  pre.style.position = 'relative';
+  pre.appendChild(btn);
+});
+
+// Active nav link
+const sections = document.querySelectorAll('.section[id]');
+const navLinks = document.querySelectorAll('nav a');
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      navLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + e.target.id));
+    }
+  });
+}, { threshold: 0.3 });
+sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>
