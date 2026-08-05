@@ -8,7 +8,11 @@ pub const TenantLifecycle = struct {
     pt: *process_table.ProcessTable,
     allocator: std.mem.Allocator,
 
-    pub fn init(allocator: std.mem.Allocator, reg: *registry.Registry, pt: *process_table.ProcessTable) TenantLifecycle {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        reg: *registry.Registry,
+        pt: *process_table.ProcessTable,
+    ) TenantLifecycle {
         return .{
             .reg = reg,
             .pt = pt,
@@ -31,14 +35,15 @@ pub const TenantLifecycle = struct {
         {
             self.pt.mu.lock();
             defer self.pt.mu.unlock();
+
             if (self.pt.lookupLocked(tenant_id)) |handle| {
                 handle_copy = handle.*;
                 self.pt.removeLocked(tenant_id);
             }
         }
 
-        if (handle_copy) |h| {
-            try sandbox.destroySandbox(h);
+        if (handle_copy) |handle| {
+            try sandbox.destroySandbox(handle);
         }
     }
 };
