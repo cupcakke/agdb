@@ -26,6 +26,7 @@ pub fn main() !void {
     const port: u16 = if (port_str) |p| std.fmt.parseInt(u16, p, 10) catch 7070 else 7070;
 
     var server = http_server.CloudServer.init(gpa, &reg, pt, port);
+    defer server.deinit();
     try server.run();
 }
 

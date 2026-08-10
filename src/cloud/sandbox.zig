@@ -8,6 +8,7 @@ pub const SandboxHandle = struct {
     cgroup_fd: i32,
     ipc_fd: i32,
     last_activity_ns: i64,
+    started_at_unix_ms: i64,
     stateless: bool = false,
 };
 
@@ -262,6 +263,7 @@ pub fn spawnTenantSandbox(tenant: registry.TenantRecord) !SandboxHandle {
         .cgroup_fd = cgroup_fd,
         .ipc_fd = sv[0],
         .last_activity_ns = @intCast(std.time.nanoTimestamp()),
+        .started_at_unix_ms = std.time.milliTimestamp(),
         .stateless = tenant.stateless != 0,
     };
 }

@@ -1,886 +1,132 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="hu">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>agdb Cloud API — Documentation</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>AGDB Cloud API</title>
 <style>
-:root {
-  --bg: #0f172a; --surface: #1e293b; --surface2: #273549;
-  --border: #334155; --text: #e2e8f0; --muted: #94a3b8;
-  --accent: #60a5fa; --green: #34d399; --yellow: #fbbf24;
-  --red: #f87171; --purple: #a78bfa; --orange: #fb923c;
-  --code-bg: #0d1117;
-}
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
-a { color: var(--accent); text-decoration: none; }
-a:hover { text-decoration: underline; }
-
-/* Layout */
-.layout { display: flex; min-height: 100vh; }
-nav { width: 260px; min-width: 260px; background: var(--surface); border-right: 1px solid var(--border); position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 1.5rem 0; }
-main { flex: 1; max-width: 860px; padding: 2.5rem 2rem; }
-
-/* Nav */
-.nav-logo { padding: 0 1.25rem 1.5rem; border-bottom: 1px solid var(--border); margin-bottom: 1rem; }
-.nav-logo h1 { font-size: 1.1rem; font-weight: 700; color: var(--text); }
-.nav-logo span { font-size: 0.75rem; color: var(--muted); }
-.nav-section { padding: 0.25rem 1.25rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-top: 1rem; margin-bottom: 0.25rem; }
-nav a { display: block; padding: 0.35rem 1.25rem; font-size: 0.875rem; color: var(--muted); border-left: 2px solid transparent; }
-nav a:hover, nav a.active { color: var(--text); background: var(--surface2); border-left-color: var(--accent); text-decoration: none; }
-
-/* Content */
-.section { margin-bottom: 3.5rem; }
-h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
-h3 { font-size: 1.1rem; font-weight: 600; margin: 2rem 0 0.75rem; color: var(--text); }
-p { color: var(--muted); margin-bottom: 1rem; }
-.lead { font-size: 1rem; color: var(--text); }
-
-/* Badges */
-.method { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 700; font-family: monospace; margin-right: 0.5rem; }
-.GET    { background: #1a3a2a; color: var(--green); }
-.POST   { background: #1a2a3a; color: var(--accent); }
-.DELETE { background: #3a1a1a; color: var(--red); }
-.auth-badge { display: inline-block; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.7rem; background: #2d2a1a; color: var(--yellow); margin-left: 0.5rem; }
-.public-badge { display: inline-block; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.7rem; background: #1a2d1a; color: var(--green); margin-left: 0.5rem; }
-
-/* Endpoint card */
-.endpoint { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 1.25rem; overflow: hidden; }
-.endpoint-header { padding: 0.875rem 1.25rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none; }
-.endpoint-header:hover { background: var(--surface2); }
-.endpoint-path { font-family: monospace; font-size: 0.875rem; color: var(--text); flex: 1; }
-.endpoint-desc { font-size: 0.8rem; color: var(--muted); }
-.endpoint-body { padding: 1.25rem; border-top: 1px solid var(--border); display: none; }
-.endpoint-body.open { display: block; }
-
-/* Tables */
-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; margin-bottom: 1rem; }
-th { text-align: left; padding: 0.5rem 0.75rem; background: var(--surface2); color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
-td { padding: 0.5rem 0.75rem; border-top: 1px solid var(--border); color: var(--text); }
-td code { background: var(--code-bg); padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.8rem; color: var(--accent); }
-.required { color: var(--red); font-size: 0.7rem; margin-left: 0.25rem; }
-.optional { color: var(--muted); font-size: 0.7rem; margin-left: 0.25rem; }
-
-/* Code blocks */
-.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 0; }
-.tab { padding: 0.5rem 1rem; font-size: 0.8rem; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
-.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-.code-block { position: relative; }
-.code-panel { display: none; }
-.code-panel.active { display: block; }
-pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 0 0 6px 6px; padding: 1.25rem; overflow-x: auto; font-size: 0.8rem; line-height: 1.6; }
-pre code { font-family: 'Fira Code', 'JetBrains Mono', monospace; color: #e6edf3; }
-.copy-btn { position: absolute; top: 0.5rem; right: 0.5rem; background: var(--surface2); border: 1px solid var(--border); color: var(--muted); padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.7rem; cursor: pointer; }
-.copy-btn:hover { color: var(--text); }
-
-/* Syntax highlighting */
-.kw  { color: #ff7b72; }
-.str { color: #a5d6ff; }
-.cmt { color: #8b949e; font-style: italic; }
-.fn  { color: #d2a8ff; }
-.num { color: #79c0ff; }
-.cls { color: #ffa657; }
-.var { color: #e6edf3; }
-.op  { color: #ff7b72; }
-
-/* Response */
-.response-label { font-size: 0.75rem; color: var(--muted); margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; }
-.status-ok { color: var(--green); }
-.status-err { color: var(--red); }
-
-/* Callout */
-.callout { border-left: 3px solid var(--accent); background: var(--surface); padding: 0.875rem 1rem; border-radius: 0 6px 6px 0; margin: 1rem 0; font-size: 0.875rem; color: var(--text); }
-.callout.warn { border-color: var(--yellow); }
-.callout.tip { border-color: var(--green); }
-
-/* Install box */
-.install-box { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.875rem 1.25rem; font-family: monospace; font-size: 0.875rem; color: #e6edf3; margin: 0.75rem 0; }
-
-/* Base URL bar */
-.base-url { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.625rem 1rem; font-family: monospace; font-size: 0.875rem; color: var(--green); margin: 1rem 0; }
-
-@media (max-width: 768px) {
-  nav { display: none; }
-  main { padding: 1.5rem 1rem; }
-}
+:root{--bg:#07111e;--surface:#101d30;--surface-raised:#172940;--border:#2d496a;--text:#eef6ff;--muted:#9db5cc;--blue:#55adff;--green:#48d7a3;--amber:#f5c05a;--red:#ff7784;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text);background:var(--bg)}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 20% -15%,#1a4775 0,transparent 38rem),var(--bg);line-height:1.55}a{color:inherit;text-decoration:none}code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}.layout{display:grid;grid-template-columns:270px minmax(0,1fr);min-height:100vh}.sidebar{position:sticky;top:0;height:100vh;overflow:auto;padding:26px 18px;border-right:1px solid var(--border);background:rgba(7,17,30,.91);backdrop-filter:blur(16px)}.brand{display:flex;align-items:center;gap:10px;margin:0 8px 28px;font-size:19px;font-weight:760;letter-spacing:-.03em}.mark{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#56b8ff,#5766e8);box-shadow:0 8px 20px rgba(85,173,255,.3)}.mark svg{width:20px;height:20px}.nav-group{margin:23px 8px 7px;color:var(--muted);font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:700}.nav-link{display:block;padding:8px 9px;border-radius:8px;color:var(--muted);font-size:14px}.nav-link:hover{background:rgba(255,255,255,.06);color:var(--text)}.back{display:inline-flex;align-items:center;gap:7px;margin:27px 8px 0;color:#c3e1ff;font-size:14px}.back svg{width:16px;height:16px}.content{width:min(1080px,100%);padding:56px 48px 90px;margin:auto}.eyebrow{display:inline-flex;align-items:center;padding:6px 10px;border:1px solid rgba(85,173,255,.34);border-radius:999px;color:#c5e4ff;background:rgba(85,173,255,.09);font-size:12px;font-weight:700}.hero{padding-bottom:42px;border-bottom:1px solid var(--border)}.hero h1{max-width:700px;margin:18px 0 13px;font-size:clamp(36px,5vw,58px);line-height:1.04;letter-spacing:-.06em}.hero p{max-width:720px;margin:0;color:var(--muted);font-size:18px}.notice{display:flex;gap:11px;padding:15px 17px;margin:26px 0;border:1px solid rgba(85,173,255,.34);border-radius:12px;background:rgba(85,173,255,.09);color:#cce8ff}.notice svg{width:20px;height:20px;flex:none;margin-top:2px}.section{padding-top:55px}.section h2{margin:0 0 8px;font-size:29px;letter-spacing:-.04em}.section>p{max-width:760px;margin:0 0 23px;color:var(--muted)}.card{padding:22px;margin:16px 0;border:1px solid var(--border);border-radius:14px;background:linear-gradient(145deg,rgba(20,37,60,.95),rgba(10,21,36,.93));box-shadow:0 16px 44px rgba(0,0,0,.19)}.endpoint-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.method{display:inline-flex;min-width:64px;justify-content:center;padding:4px 8px;border-radius:6px;font:700 12px ui-monospace,SFMono-Regular,Menlo,monospace}.get{background:rgba(72,215,163,.14);color:#a6f2d4}.post{background:rgba(85,173,255,.14);color:#c0e3ff}.delete{background:rgba(255,119,132,.14);color:#ffc7ce}.path{font:600 15px ui-monospace,SFMono-Regular,Menlo,monospace;color:#e6f3ff;overflow-wrap:anywhere}.auth{padding:3px 7px;border-radius:999px;background:rgba(245,192,90,.13);color:#ffe1a2;font-size:11px;font-weight:700}.description{margin:13px 0 0;color:var(--muted)}.endpoint-body{margin-top:20px;padding-top:18px;border-top:1px solid rgba(157,181,204,.16)}.endpoint-body h3{margin:19px 0 9px;font-size:14px}.endpoint-body h3:first-child{margin-top:0}.code{overflow:auto;padding:14px;border:1px solid rgba(157,181,204,.19);border-radius:9px;background:#06101c;color:#cfe8ff;font-size:13px;line-height:1.55;white-space:pre}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:14px}th{text-align:left;padding:9px 10px;border-bottom:1px solid var(--border);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.07em}td{padding:10px;border-bottom:1px solid rgba(157,181,204,.14);vertical-align:top}tr:last-child td{border-bottom:0}td code{color:#cce7ff;font-size:12px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.summary-card{padding:20px;border:1px solid var(--border);border-radius:13px;background:rgba(16,29,48,.88)}.summary-card h3{margin:0 0 8px;font-size:16px}.summary-card p{margin:0;color:var(--muted);font-size:14px}.response-list{display:grid;gap:9px;padding:0;margin:0;list-style:none}.response-list li{display:flex;gap:9px;align-items:flex-start;color:var(--muted)}.status{display:inline-flex;flex:none;min-width:39px;justify-content:center;padding:2px 6px;border-radius:5px;font:700 11px ui-monospace,SFMono-Regular,Menlo,monospace}.status.ok{background:rgba(72,215,163,.15);color:#a3f1d2}.status.error{background:rgba(255,119,132,.14);color:#ffc7ce}.footer{padding:42px 0 0;color:var(--muted);font-size:13px}.footer a{color:#c7e4ff}@media(max-width:850px){.layout{grid-template-columns:1fr}.sidebar{position:static;height:auto;border-right:0;border-bottom:1px solid var(--border)}.sidebar nav{display:flex;overflow:auto;gap:4px}.nav-group{display:none}.nav-link{white-space:nowrap}.back{margin-top:18px}.content{padding:38px 20px 65px}.grid{grid-template-columns:1fr}}@media(max-width:480px){.content{padding:30px 15px 50px}.card{padding:16px}.hero h1{font-size:39px}.endpoint-head{align-items:flex-start}.path{font-size:13px}.code{font-size:12px}}
 </style>
 </head>
 <body>
 <div class="layout">
+<aside class="sidebar">
+<a class="brand" href="/"><span class="mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 2.5 3.5 7v10L12 21.5l8.5-4.5V7L12 2.5Z" stroke="currentColor" stroke-width="1.8"/><path d="m3.5 7 8.5 4.7L20.5 7M12 11.7v9.8" stroke="currentColor" stroke-width="1.8"/></svg></span><span>AGDB API</span></a>
 <nav>
-  <div class="nav-logo">
-    <h1>agdb Cloud</h1>
-    <span>API v1 Documentation</span>
-  </div>
-  <div class="nav-section">Getting Started</div>
-  <a href="#overview">Overview</a>
-  <a href="#quickstart">Quickstart</a>
-  <a href="#auth-guide">Authentication</a>
-  <div class="nav-section">Client Libraries</div>
-  <a href="#python-client">Python Client</a>
-  <a href="#zig-client">Zig Client</a>
-  <div class="nav-section">API Reference</div>
-  <a href="#health">Health</a>
-  <a href="#registration">Registration</a>
-  <a href="#account">Account</a>
-  <a href="#apikeys">API Keys</a>
-  <a href="#sandbox">Sandbox</a>
-  <a href="#databases">Databases</a>
-  <a href="#records">Records</a>
-  <a href="#search">Search</a>
-  <a href="#stats">Stats</a>
-  <a href="#webhooks">Webhooks</a>
+<div class="nav-group">Alapok</div>
+<a class="nav-link" href="#authentication">Hitelesítés</a>
+<a class="nav-link" href="#errors">Hibaválaszok</a>
+<div class="nav-group">Fiók</div>
+<a class="nav-link" href="#tenant">Tenant</a>
+<a class="nav-link" href="#keys">API kulcsok</a>
+<a class="nav-link" href="#sandbox">Sandbox</a>
+<div class="nav-group">Adatok</div>
+<a class="nav-link" href="#databases">Adatbázisok</a>
+<a class="nav-link" href="#records">Rekordok</a>
+<a class="nav-link" href="#query">Lekérdezés</a>
+<a class="nav-link" href="#statistics">Statisztika</a>
+<div class="nav-group">Megfigyelhetőség</div>
+<a class="nav-link" href="#analytics">Analitika</a>
+<a class="nav-link" href="#audit">Audit</a>
 </nav>
-<main>
-
-<!-- Overview -->
-<div class="section" id="overview">
-  <h2>Overview</h2>
-  <p class="lead">agdb is a high-performance, persistent database engine written in Zig, designed for hybrid search (full-text + vector), multi-tenancy, and low-latency operations.</p>
-  <div class="base-url">https://agdb.replit.app</div>
-  <p>All API endpoints are prefixed with <code>/v1</code>. Authenticated endpoints require a Bearer token in the <code>Authorization</code> header.</p>
-  <div class="callout">
-    <strong>Base URL:</strong> <code>https://agdb.replit.app</code><br>
-    All requests and responses use <code>application/json</code>.
-  </div>
+<a class="back" href="/"><svg viewBox="0 0 24 24" fill="none"><path d="m14 6-6 6 6 6M8 12h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Vissza a konzolhoz</a>
+</aside>
+<main class="content">
+<section class="hero">
+<span class="eyebrow">AGDB Cloud REST API</span>
+<h1>Tenantenként perzisztens adat és tényleges használati metrikák.</h1>
+<p>Minden hitelesített kérés Bearer API kulccsal fut. A rekordok a tenant szerveroldali adatbázisában élnek, az analitika és az audit pedig a szerver által rögzített eseményekből készül.</p>
+<div class="notice"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M12 11v5M12 8h.01" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>A példák relatív útvonalakat használnak. A konzol ugyanazon originről hívja a <code>/v1</code> API-t.</span></div>
+</section>
+<section class="section" id="authentication">
+<h2>Hitelesítés</h2>
+<p>A nyilvános regisztráció, bejelentkezés és health végpontokon kívül minden művelethez a <code>Authorization</code> fejléc szükséges.</p>
+<div class="card">
+<div class="endpoint-head"><span class="method get">GET</span><code class="path">/v1/health</code><span class="description">Szolgáltatás állapot</span></div>
+<div class="endpoint-body"><pre class="code">curl --request GET /v1/health</pre><ul class="response-list"><li><span class="status ok">200</span><span><code>status</code> és <code>version</code> mezőket tartalmazó válasz.</span></li></ul></div>
 </div>
-
-<!-- Quickstart -->
-<div class="section" id="quickstart">
-  <h2>Quickstart</h2>
-  <p>Get up and running in under 2 minutes.</p>
-
-  <h3>1. Register an account</h3>
-  <div class="code-block">
-    <div class="tabs">
-      <div class="tab active" onclick="switchTab(this,'qs-reg')">curl</div>
-      <div class="tab" onclick="switchTab(this,'qs-reg')">Python</div>
-      <div class="tab" onclick="switchTab(this,'qs-reg')">Zig</div>
-    </div>
-    <div class="code-panel active" id="qs-reg-0">
-<pre><code>curl -X POST https://agdb.replit.app/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"email": "you@example.com"}'</code></pre>
-    </div>
-    <div class="code-panel" id="qs-reg-1">
-<pre><code><span class="kw">import</span> requests
-
-client = AgdbClient(<span class="str">"https://agdb.replit.app"</span>)
-account = client.register(<span class="str">"you@example.com"</span>)
-<span class="fn">print</span>(account[<span class="str">"api_key"</span>])  <span class="cmt"># save this!</span></code></pre>
-    </div>
-    <div class="code-panel" id="qs-reg-2">
-<pre><code><span class="kw">const</span> client = <span class="kw">try</span> AgdbClient.init(allocator, <span class="str">"https://agdb.replit.app"</span>, <span class="kw">null</span>);
-<span class="kw">const</span> account = <span class="kw">try</span> client.register(<span class="str">"you@example.com"</span>);
-<span class="cmt">// account.api_key — save this!</span></code></pre>
-    </div>
-  </div>
-
-  <h3>2. Insert a document</h3>
-  <div class="code-block">
-    <div class="tabs">
-      <div class="tab active" onclick="switchTab(this,'qs-ins')">curl</div>
-    </div>
-    <div class="code-panel active" id="qs-ins-0">
-<pre><code>curl -X POST https://agdb.replit.app/v1/databases/documents/records \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"record": {"title": "Hello World", "body": "My first document"}}'</code></pre>
-    </div>
-  </div>
-
-  <h3>3. Search</h3>
-  <div class="code-block">
-    <div class="tabs">
-      <div class="tab active" onclick="switchTab(this,'qs-srch')">curl</div>
-    </div>
-    <div class="code-panel active" id="qs-srch-0">
-<pre><code>curl -X POST https://agdb.replit.app/v1/databases/documents/search \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"query": "hello", "top_k": 5}'</code></pre>
-    </div>
-  </div>
+<div class="card">
+<div class="endpoint-head"><span class="method post">POST</span><code class="path">/v1/auth/register</code><span class="description">Tenant és elsődleges API kulcs létrehozása</span></div>
+<div class="endpoint-body"><h3>Kérés</h3><pre class="code">curl --request POST /v1/auth/register \
+  --header "Content-Type: application/json" \
+  --data-binary @registration-request.json</pre><table><thead><tr><th>Mező</th><th>Típus</th><th>Jelentés</th></tr></thead><tbody><tr><td><code>email</code></td><td>string</td><td>A tenant egyedi e-mail azonosítója.</td></tr></tbody></table><h3>Válaszmezők</h3><table><thead><tr><th>Mező</th><th>Típus</th><th>Jelentés</th></tr></thead><tbody><tr><td><code>tenant_id</code></td><td>string</td><td>A létrehozott tenant azonosítója.</td></tr><tr><td><code>api_key</code></td><td>string</td><td>Az egyszer megjelenő elsődleges kulcs.</td></tr><tr><td><code>created_at</code></td><td>integer</td><td>Unix idő másodpercben.</td></tr></tbody></table><ul class="response-list"><li><span class="status ok">201</span><span>A tenant létrejött.</span></li><li><span class="status error">400</span><span>Érvénytelen e-mail vagy kérés.</span></li><li><span class="status error">409</span><span>Az e-mailhez már tartozik tenant.</span></li></ul></div>
 </div>
-
-<!-- Auth guide -->
-<div class="section" id="auth-guide">
-  <h2>Authentication</h2>
-  <p>All authenticated endpoints require a Bearer token in the <code>Authorization</code> header.</p>
-  <div class="install-box">Authorization: Bearer agdb_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</div>
-  <div class="callout warn">Keep your API key secret. It grants full access to your tenant database.</div>
+<div class="card">
+<div class="endpoint-head"><span class="method post">POST</span><code class="path">/v1/auth/login</code><span class="description">API kulcs ellenőrzése</span></div>
+<div class="endpoint-body"><pre class="code">curl --request POST /v1/auth/login \
+  --header "Content-Type: application/json" \
+  --data-binary @login-request.json</pre><table><thead><tr><th>Mező</th><th>Típus</th><th>Jelentés</th></tr></thead><tbody><tr><td><code>api_key</code></td><td>string</td><td>A regisztrációkor vagy kulcskorforgatáskor kiadott elsődleges kulcs.</td></tr></tbody></table><p>A válasz a tenant azonosítóját, e-mail címét, állapotát és létrehozási idejét tartalmazza.</p></div>
 </div>
-
-<!-- Python client -->
-<div class="section" id="python-client">
-  <h2>Python Client</h2>
-  <p>No dependencies beyond the standard library. Copy the class below into your project.</p>
-
-  <div class="install-box"># No pip install needed — pure stdlib</div>
-
-<pre><code><span class="cmt">"""agdb Cloud Python client — copy & paste, no dependencies"""</span>
-<span class="kw">import</span> urllib.request, urllib.error, json
-<span class="kw">from</span> typing <span class="kw">import</span> Any, Optional
-
-<span class="kw">class</span> <span class="cls">AgdbError</span>(Exception):
-    <span class="kw">def</span> <span class="fn">__init__</span>(self, status: int, message: str):
-        <span class="fn">super</span>().__init__(message)
-        self.status = status
-
-<span class="kw">class</span> <span class="cls">AgdbClient</span>:
-    <span class="kw">def</span> <span class="fn">__init__</span>(self, base_url: str, api_key: Optional[str] = None):
-        self.base_url = base_url.rstrip(<span class="str">"/"</span>)
-        self.api_key  = api_key
-
-    <span class="kw">def</span> <span class="fn">_req</span>(self, method: str, path: str, body: Any = None, auth: bool = True) -> Any:
-        url  = self.base_url + path
-        data = json.dumps(body).encode() if body is not None else None
-        headers = {<span class="str">"Content-Type"</span>: <span class="str">"application/json"</span>}
-        if auth and self.api_key:
-            headers[<span class="str">"Authorization"</span>] = <span class="str">f"Bearer {self.api_key}"</span>
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
-        try:
-            with urllib.request.urlopen(req, timeout=<span class="num">30</span>) as r:
-                return json.loads(r.read().decode())
-        except urllib.error.HTTPError as e:
-            msg = json.loads(e.read().decode()).get(<span class="str">"error"</span>, str(e))
-            raise AgdbError(e.code, msg)
-
-    <span class="cmt"># ── Auth ──────────────────────────────────────────────────────────────────</span>
-
-    <span class="kw">def</span> <span class="fn">register</span>(self, email: str) -> dict:
-        <span class="str">"""Register a new account. Returns {"tenant_id", "api_key"}."""</span>
-        return self._req(<span class="str">"POST"</span>, <span class="str">"/v1/auth/register"</span>, {<span class="str">"email"</span>: email}, auth=False)
-
-    <span class="kw">def</span> <span class="fn">login</span>(self, api_key: str) -> dict:
-        <span class="str">"""Verify an API key and return tenant info."""</span>
-        self.api_key = api_key
-        return self._req(<span class="str">"POST"</span>, <span class="str">"/v1/auth/login"</span>, {<span class="str">"api_key"</span>: api_key}, auth=False)
-
-    <span class="cmt"># ── Account ───────────────────────────────────────────────────────────────</span>
-
-    <span class="kw">def</span> <span class="fn">get_tenant</span>(self) -> dict:
-        <span class="str">"""Get current tenant info."""</span>
-        return self._req(<span class="str">"GET"</span>, <span class="str">"/v1/tenant"</span>)
-
-    <span class="kw">def</span> <span class="fn">delete_account</span>(self) -> dict:
-        <span class="str">"""Permanently delete account and all data."""</span>
-        return self._req(<span class="str">"DELETE"</span>, <span class="str">"/v1/account"</span>)
-
-    <span class="cmt"># ── API Keys ──────────────────────────────────────────────────────────────</span>
-
-    <span class="kw">def</span> <span class="fn">list_keys</span>(self) -> list:
-        return self._req(<span class="str">"GET"</span>, <span class="str">"/v1/apikeys"</span>)[<span class="str">"keys"</span>]
-
-    <span class="kw">def</span> <span class="fn">rotate_key</span>(self, key_id: str) -> dict:
-        <span class="str">"""Rotate (replace) an API key. The old key is immediately invalidated."""</span>
-        return self._req(<span class="str">"POST"</span>, <span class="str">f"/v1/apikeys/{key_id}/rotate"</span>)
-
-    <span class="kw">def</span> <span class="fn">revoke_key</span>(self, key_id: str) -> dict:
-        return self._req(<span class="str">"DELETE"</span>, <span class="str">f"/v1/apikeys/{key_id}"</span>)
-
-    <span class="cmt"># ── Records ───────────────────────────────────────────────────────────────</span>
-
-    <span class="kw">def</span> <span class="fn">insert</span>(self, record: dict, db: str = <span class="str">"documents"</span>) -> dict:
-        <span class="str">"""Insert a record. Returns {"id": ...}."""</span>
-        return self._req(<span class="str">"POST"</span>, <span class="str">f"/v1/databases/{db}/records"</span>, {<span class="str">"record"</span>: record})
-
-    <span class="kw">def</span> <span class="fn">get</span>(self, record_id: int, db: str = <span class="str">"documents"</span>) -> dict:
-        return self._req(<span class="str">"GET"</span>, <span class="str">f"/v1/databases/{db}/records/{record_id}"</span>)
-
-    <span class="kw">def</span> <span class="fn">delete</span>(self, record_id: int, db: str = <span class="str">"documents"</span>) -> dict:
-        return self._req(<span class="str">"DELETE"</span>, <span class="str">f"/v1/databases/{db}/records/{record_id}"</span>)
-
-    <span class="cmt"># ── Search ────────────────────────────────────────────────────────────────</span>
-
-    <span class="kw">def</span> <span class="fn">search</span>(self, query: str, top_k: int = <span class="num">10</span>, db: str = <span class="str">"documents"</span>) -> list:
-        <span class="str">"""Hybrid full-text + vector search."""</span>
-        resp = self._req(<span class="str">"POST"</span>, <span class="str">f"/v1/databases/{db}/search"</span>,
-                         {<span class="str">"query"</span>: query, <span class="str">"top_k"</span>: top_k})
-        return resp.get(<span class="str">"results"</span>, resp)
-
-    <span class="cmt"># ── Sandbox ───────────────────────────────────────────────────────────────</span>
-
-    <span class="kw">def</span> <span class="fn">sandbox_status</span>(self) -> dict:
-        return self._req(<span class="str">"GET"</span>, <span class="str">"/v1/sandbox"</span>)
-
-    <span class="kw">def</span> <span class="fn">sandbox_start</span>(self) -> dict:
-        return self._req(<span class="str">"POST"</span>, <span class="str">"/v1/sandbox/start"</span>)
-
-    <span class="kw">def</span> <span class="fn">sandbox_stop</span>(self) -> dict:
-        return self._req(<span class="str">"POST"</span>, <span class="str">"/v1/sandbox/stop"</span>)
-
-    <span class="kw">def</span> <span class="fn">sandbox_restart</span>(self) -> dict:
-        return self._req(<span class="str">"POST"</span>, <span class="str">"/v1/sandbox/restart"</span>)
-
-    <span class="cmt"># ── Stats ─────────────────────────────────────────────────────────────────</span>
-
-    <span class="kw">def</span> <span class="fn">stats</span>(self, db: str = <span class="str">"documents"</span>) -> dict:
-        return self._req(<span class="str">"GET"</span>, <span class="str">f"/v1/databases/{db}/stats"</span>)
-
-    <span class="cmt"># ── Health ────────────────────────────────────────────────────────────────</span>
-
-    <span class="kw">def</span> <span class="fn">health</span>(self) -> dict:
-        return self._req(<span class="str">"GET"</span>, <span class="str">"/v1/health"</span>, auth=False)
-
-
-<span class="cmt"># ── Usage example ──────────────────────────────────────────────────────────</span>
-<span class="kw">if</span> __name__ == <span class="str">"__main__"</span>:
-    BASE = <span class="str">"https://agdb.replit.app"</span>
-
-    <span class="cmt"># Register</span>
-    client = AgdbClient(BASE)
-    account = client.register(<span class="str">"alice@example.com"</span>)
-    client.api_key = account[<span class="str">"api_key"</span>]
-    <span class="fn">print</span>(<span class="str">"Registered:"</span>, account[<span class="str">"tenant_id"</span>])
-
-    <span class="cmt"># Insert documents</span>
-    client.insert({<span class="str">"title"</span>: <span class="str">"Zig is fast"</span>, <span class="str">"body"</span>: <span class="str">"Zig compiles to tight machine code."</span>})
-    client.insert({<span class="str">"title"</span>: <span class="str">"Python is easy"</span>, <span class="str">"body"</span>: <span class="str">"Python has clear syntax."</span>})
-
-    <span class="cmt"># Search</span>
-    results = client.search(<span class="str">"fast compiled language"</span>, top_k=<span class="num">5</span>)
-    <span class="fn">print</span>(<span class="str">"Results:"</span>, results)</code></pre>
+<div class="card"><h3>Bearer fejléc</h3><table><thead><tr><th>Fejléc</th><th>Érték</th></tr></thead><tbody><tr><td><code>Authorization</code></td><td><code>Bearer</code> szóközzel követve a tenant aktív elsődleges API kulcsa.</td></tr></tbody></table></div>
+</section>
+<section class="section" id="tenant">
+<h2>Tenant és fiók</h2>
+<p>A tenant metaadatok és a fiók törlése kizárólag a saját API kulccsal érhető el.</p>
+<div class="grid">
+<div class="card"><div class="endpoint-head"><span class="method get">GET</span><code class="path">/v1/tenant</code><span class="auth">auth</span></div><div class="endpoint-body"><p>A válasz <code>tenant_id</code>, <code>email</code>, <code>status</code> és <code>created_at</code> mezőket ad vissza.</p></div></div>
+<div class="card"><div class="endpoint-head"><span class="method delete">DELETE</span><code class="path">/v1/account</code><span class="auth">auth</span></div><div class="endpoint-body"><p>Visszavonja a tenantot, leállítja a sandboxot, törli a tenant adatkönyvtárát és a tenant mérési tárolóját.</p></div></div>
 </div>
-
-<!-- Zig client -->
-<div class="section" id="zig-client">
-  <h2>Zig Client</h2>
-  <p>Pure Zig, no external dependencies. Uses <code>std.http.Client</code> (Zig 0.14+).</p>
-
-<pre><code><span class="cmt">// agdb Cloud Zig client — Zig 0.14+
-// Add to your build.zig: no external deps needed</span>
-<span class="kw">const</span> std = @import(<span class="str">"std"</span>);
-
-<span class="kw">pub const</span> AgdbError = <span class="kw">error</span> {
-    Unauthorized, NotFound, Conflict, ServerError, BadResponse,
-};
-
-<span class="kw">pub const</span> AgdbClient = <span class="kw">struct</span> {
-    allocator: std.mem.Allocator,
-    base_url:  []<span class="kw">const</span> u8,
-    api_key:   ?[]<span class="kw">const</span> u8,
-    client:    std.http.Client,
-
-    <span class="kw">pub fn</span> <span class="fn">init</span>(allocator: std.mem.Allocator, base_url: []<span class="kw">const</span> u8, api_key: ?[]<span class="kw">const</span> u8) AgdbClient {
-        <span class="kw">return</span> .{
-            .allocator = allocator,
-            .base_url  = base_url,
-            .api_key   = api_key,
-            .client    = .{ .allocator = allocator },
-        };
-    }
-
-    <span class="kw">pub fn</span> <span class="fn">deinit</span>(self: *AgdbClient) void { self.client.deinit(); }
-
-    <span class="cmt">// Low-level request helper</span>
-    <span class="kw">fn</span> <span class="fn">request</span>(
-        self: *AgdbClient, method: std.http.Method,
-        path: []<span class="kw">const</span> u8, body: ?[]<span class="kw">const</span> u8, auth: bool,
-    ) ![]u8 {
-        <span class="kw">const</span> url = <span class="kw">try</span> std.fmt.allocPrint(self.allocator, <span class="str">"{s}{s}"</span>, .{ self.base_url, path });
-        <span class="kw">defer</span> self.allocator.free(url);
-        <span class="kw">const</span> uri = <span class="kw">try</span> std.Uri.parse(url);
-
-        <span class="kw">var</span> extra = std.ArrayList(std.http.Header).init(self.allocator);
-        <span class="kw">defer</span> extra.deinit();
-        <span class="kw">try</span> extra.append(.{ .name = <span class="str">"Content-Type"</span>, .value = <span class="str">"application/json"</span> });
-        <span class="kw">if</span> (auth) <span class="kw">if</span> (self.api_key) |k| {
-            <span class="kw">const</span> bearer = <span class="kw">try</span> std.fmt.allocPrint(self.allocator, <span class="str">"Bearer {s}"</span>, .{k});
-            <span class="kw">defer</span> self.allocator.free(bearer);
-            <span class="kw">try</span> extra.append(.{ .name = <span class="str">"Authorization"</span>, .value = bearer });
-        };
-
-        <span class="kw">var</span> hdr_buf: [<span class="num">8192</span>]u8 = undefined;
-        <span class="kw">var</span> req = <span class="kw">try</span> self.client.open(method, uri, .{
-            .server_header_buffer = &hdr_buf,
-            .extra_headers = extra.items,
-        });
-        <span class="kw">defer</span> req.deinit();
-
-        <span class="kw">if</span> (body) |b| { req.transfer_encoding = .{ .content_length = b.len }; }
-        <span class="kw">try</span> req.send();
-        <span class="kw">if</span> (body) |b| <span class="kw">try</span> req.writeAll(b);
-        <span class="kw">try</span> req.finish();
-        <span class="kw">try</span> req.wait();
-
-        <span class="kw">return switch</span> (req.response.status) {
-            .ok, .created, .no_content => req.reader().readAllAlloc(self.allocator, <span class="num">16</span> * <span class="num">1024</span> * <span class="num">1024</span>),
-            .unauthorized => AgdbError.Unauthorized,
-            .not_found    => AgdbError.NotFound,
-            .conflict     => AgdbError.Conflict,
-            <span class="kw">else</span>          => AgdbError.ServerError,
-        };
-    }
-
-    <span class="cmt">// ── Auth ──────────────────────────────────────────────────────────────────</span>
-
-    <span class="kw">pub fn</span> <span class="fn">register</span>(self: *AgdbClient, email: []<span class="kw">const</span> u8) ![]u8 {
-        <span class="kw">const</span> body = <span class="kw">try</span> std.fmt.allocPrint(self.allocator, <span class="str">"{{\\"email\\":\\"{s}\\"}}"</span>, .{email});
-        <span class="kw">defer</span> self.allocator.free(body);
-        <span class="kw">return</span> self.request(.POST, <span class="str">"/v1/auth/register"</span>, body, <span class="kw">false</span>);
-    }
-
-    <span class="kw">pub fn</span> <span class="fn">login</span>(self: *AgdbClient, api_key: []<span class="kw">const</span> u8) ![]u8 {
-        self.api_key = api_key;
-        <span class="kw">const</span> body = <span class="kw">try</span> std.fmt.allocPrint(self.allocator, <span class="str">"{{\\"api_key\\":\\"{s}\\"}}"</span>, .{api_key});
-        <span class="kw">defer</span> self.allocator.free(body);
-        <span class="kw">return</span> self.request(.POST, <span class="str">"/v1/auth/login"</span>, body, <span class="kw">false</span>);
-    }
-
-    <span class="cmt">// ── Records ───────────────────────────────────────────────────────────────</span>
-
-    <span class="kw">pub fn</span> <span class="fn">insert</span>(self: *AgdbClient, record_json: []<span class="kw">const</span> u8, db: []<span class="kw">const</span> u8) ![]u8 {
-        <span class="kw">const</span> path = <span class="kw">try</span> std.fmt.allocPrint(self.allocator, <span class="str">"/v1/databases/{s}/records"</span>, .{db});
-        <span class="kw">defer</span> self.allocator.free(path);
-        <span class="kw">const</span> body = <span class="kw">try</span> std.fmt.allocPrint(self.allocator, <span class="str">"{{\\"record\\":{s}}}"</span>, .{record_json});
-        <span class="kw">defer</span> self.allocator.free(body);
-        <span class="kw">return</span> self.request(.POST, path, body, <span class="kw">true</span>);
-    }
-
-    <span class="kw">pub fn</span> <span class="fn">get</span>(self: *AgdbClient, id: u64, db: []<span class="kw">const</span> u8) ![]u8 {
-        <span class="kw">const</span> path = <span class="kw">try</span> std.fmt.allocPrint(self.allocator, <span class="str">"/v1/databases/{s}/records/{d}"</span>, .{ db, id });
-        <span class="kw">defer</span> self.allocator.free(path);
-        <span class="kw">return</span> self.request(.GET, path, <span class="kw">null</span>, <span class="kw">true</span>);
-    }
-
-    <span class="kw">pub fn</span> <span class="fn">delete</span>(self: *AgdbClient, id: u64, db: []<span class="kw">const</span> u8) ![]u8 {
-        <span class="kw">const</span> path = <span class="kw">try</span> std.fmt.allocPrint(self.allocator, <span class="str">"/v1/databases/{s}/records/{d}"</span>, .{ db, id });
-        <span class="kw">defer</span> self.allocator.free(path);
-        <span class="kw">return</span> self.request(.DELETE, path, <span class="kw">null</span>, <span class="kw">true</span>);
-    }
-
-    <span class="cmt">// ── Search ────────────────────────────────────────────────────────────────</span>
-
-    <span class="kw">pub fn</span> <span class="fn">search</span>(self: *AgdbClient, query: []<span class="kw">const</span> u8, top_k: u32, db: []<span class="kw">const</span> u8) ![]u8 {
-        <span class="kw">const</span> path = <span class="kw">try</span> std.fmt.allocPrint(self.allocator, <span class="str">"/v1/databases/{s}/search"</span>, .{db});
-        <span class="kw">defer</span> self.allocator.free(path);
-        <span class="kw">const</span> body = <span class="kw">try</span> std.fmt.allocPrint(self.allocator,
-            <span class="str">"{{\\"query\\":\\"{s}\\",\\"top_k\\":{d}}}"</span>, .{ query, top_k });
-        <span class="kw">defer</span> self.allocator.free(body);
-        <span class="kw">return</span> self.request(.POST, path, body, <span class="kw">true</span>);
-    }
-
-    <span class="cmt">// ── Health ────────────────────────────────────────────────────────────────</span>
-
-    <span class="kw">pub fn</span> <span class="fn">health</span>(self: *AgdbClient) ![]u8 {
-        <span class="kw">return</span> self.request(.GET, <span class="str">"/v1/health"</span>, <span class="kw">null</span>, <span class="kw">false</span>);
-    }
-};
-
-<span class="cmt">// ── Usage example ──────────────────────────────────────────────────────────</span>
-<span class="kw">pub fn</span> <span class="fn">main</span>() !void {
-    <span class="kw">var</span> gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    <span class="kw">defer</span> _ = gpa.deinit();
-    <span class="kw">const</span> alloc = gpa.allocator();
-
-    <span class="kw">var</span> client = AgdbClient.init(alloc, <span class="str">"https://agdb.replit.app"</span>, <span class="kw">null</span>);
-    <span class="kw">defer</span> client.deinit();
-
-    <span class="cmt">// Register</span>
-    <span class="kw">const</span> account_json = <span class="kw">try</span> client.register(<span class="str">"alice@example.com"</span>);
-    <span class="kw">defer</span> alloc.free(account_json);
-    std.debug.print(<span class="str">"Account: {s}\n"</span>, .{account_json});
-
-    <span class="cmt">// Insert</span>
-    client.api_key = <span class="str">"agdb_yourkey"</span>;
-    <span class="kw">const</span> r = <span class="kw">try</span> client.insert(
-        <span class="str">"{\"title\":\"Zig is fast\",\"body\":\"Tight machine code.\"}"</span>, <span class="str">"documents"</span>);
-    <span class="kw">defer</span> alloc.free(r);
-
-    <span class="cmt">// Search</span>
-    <span class="kw">const</span> results = <span class="kw">try</span> client.search(<span class="str">"fast compiled"</span>, <span class="num">5</span>, <span class="str">"documents"</span>);
-    <span class="kw">defer</span> alloc.free(results);
-    std.debug.print(<span class="str">"Search: {s}\n"</span>, .{results});
-}</code></pre>
+</section>
+<section class="section" id="keys">
+<h2>API kulcsok</h2>
+<p>Egy tenant egy aktív elsődleges kulcsot használ. A teljes kulcs csak regisztrációkor vagy új kulcs kiadásakor érhető el.</p>
+<div class="card"><div class="endpoint-head"><span class="method get">GET</span><code class="path">/v1/apikeys</code><span class="auth">auth</span></div><div class="endpoint-body"><p>A válasz csak metaadatokat ad: <code>id</code>, <code>name</code> és <code>status</code>. Titkos kulcsot nem ad vissza.</p></div></div>
+<div class="card"><div class="endpoint-head"><span class="method post">POST</span><code class="path">/v1/apikeys</code><span class="auth">auth</span><span class="description">Új elsődleges kulcs kiadása</span></div><div class="endpoint-body"><p>A korábbi elsődleges kulcs érvénytelen lesz. A válasz <code>id</code>, <code>key</code>, <code>created_at</code> és <code>status</code> mezőket tartalmaz.</p></div></div>
+<div class="card"><div class="endpoint-head"><span class="method post">POST</span><code class="path">/v1/apikeys/primary/rotate</code><span class="auth">auth</span></div><div class="endpoint-body"><p>Azonos művelet a konkrét elsődleges kulcs útvonalán.</p></div></div>
+<div class="card"><div class="endpoint-head"><span class="method delete">DELETE</span><code class="path">/v1/apikeys/primary</code><span class="auth">auth</span></div><div class="endpoint-body"><p>Visszavonja az elsődleges kulcsot. Ezután új kulcs nélkül a tenant API-ja nem hitelesíthető.</p></div></div>
+</section>
+<section class="section" id="sandbox">
+<h2>Sandbox</h2>
+<p>A sandbox a tenant izolált adatbázis-futtatási környezete. A lekérdezési végpontok szükség esetén elindítják, a vezérlő végpontok pedig tényleges állapotot adnak vissza.</p>
+<div class="grid">
+<div class="summary-card"><h3><code>GET /v1/sandbox</code></h3><p><code>status</code> értéke <code>running</code> vagy <code>stopped</code>. Futó sandboxnál a válasz <code>started_at_ms</code> mezőt is tartalmaz.</p></div>
+<div class="summary-card"><h3><code>POST /v1/sandbox/start</code></h3><p>Elindítja a leállított tenant sandboxot. A <code>changed</code> jelzi, hogy történt-e állapotváltozás.</p></div>
+<div class="summary-card"><h3><code>POST /v1/sandbox/stop</code></h3><p>Leállítja a futó sandboxot. A perzisztens tenant adat nem vész el.</p></div>
+<div class="summary-card"><h3><code>POST /v1/sandbox/restart</code></h3><p>Leállítja, majd újraindítja a sandboxot.</p></div>
 </div>
-
-<!-- Health -->
-<div class="section" id="health">
-  <h2>Health</h2>
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method GET">GET</span>
-      <span class="endpoint-path">/v1/health</span>
-      <span class="public-badge">public</span>
-      <span class="endpoint-desc">Server health and version</span>
-    </div>
-    <div class="endpoint-body open">
-      <p>No authentication required. Use to check if the server is reachable.</p>
-      <div class="response-label">Response <span class="status-ok">200</span></div>
-<pre><code>{"status": "ok", "version": "2.4.0"}</code></pre>
-    </div>
-  </div>
-</div>
-
-<!-- Registration -->
-<div class="section" id="registration">
-  <h2>Registration</h2>
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method POST">POST</span>
-      <span class="endpoint-path">/v1/auth/register</span>
-      <span class="public-badge">public</span>
-      <span class="endpoint-desc">Create a new tenant account</span>
-    </div>
-    <div class="endpoint-body open">
-      <h3>Request body</h3>
-      <table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
-      <tbody><tr><td><code>email</code><span class="required">required</span></td><td>string</td><td>A valid email address (max 254 chars)</td></tr></tbody></table>
-      <div class="response-label">Response <span class="status-ok">201 Created</span></div>
-<pre><code>{
-  "tenant_id": "42",
-  "api_key":   "agdb_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-  "created_at": 1748123456,
-  "status":    "active"
-}</code></pre>
-      <div class="response-label">Errors</div>
-      <table><thead><tr><th>Status</th><th>Reason</th></tr></thead>
-      <tbody>
-        <tr><td><span class="status-err">400</span></td><td>Invalid or missing email</td></tr>
-        <tr><td><span class="status-err">409</span></td><td>Email already registered</td></tr>
-      </tbody></table>
-    </div>
-  </div>
-
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method POST">POST</span>
-      <span class="endpoint-path">/v1/auth/login</span>
-      <span class="public-badge">public</span>
-      <span class="endpoint-desc">Verify an API key and get tenant info</span>
-    </div>
-    <div class="endpoint-body">
-      <table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
-      <tbody><tr><td><code>api_key</code><span class="required">required</span></td><td>string</td><td>Your API key</td></tr></tbody></table>
-      <div class="response-label">Response <span class="status-ok">200</span></div>
-<pre><code>{"tenant_id": "42", "email": "you@example.com", "status": "active", "created_at": 1748123456}</code></pre>
-    </div>
-  </div>
-</div>
-
-<!-- Account -->
-<div class="section" id="account">
-  <h2>Account</h2>
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method GET">GET</span>
-      <span class="endpoint-path">/v1/tenant</span>
-      <span class="auth-badge">auth</span>
-      <span class="endpoint-desc">Get current tenant information</span>
-    </div>
-    <div class="endpoint-body">
-      <div class="response-label">Response <span class="status-ok">200</span></div>
-<pre><code>{"tenant_id": "42", "email": "you@example.com", "status": "active", "region": "eu-west-1", "created_at": 1748123456, "data_path": "/var/lib/agdb/tenants/42"}</code></pre>
-    </div>
-  </div>
-
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method DELETE">DELETE</span>
-      <span class="endpoint-path">/v1/account</span>
-      <span class="auth-badge">auth</span>
-      <span class="endpoint-desc">Delete account and all data permanently</span>
-    </div>
-    <div class="endpoint-body">
-      <div class="callout warn">This action is irreversible. All records and data are deleted immediately.</div>
-      <div class="response-label">Response <span class="status-ok">200</span></div>
-<pre><code>{"status": "deleted"}</code></pre>
-    </div>
-  </div>
-</div>
-
-<!-- API Keys -->
-<div class="section" id="apikeys">
-  <h2>API Keys</h2>
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method GET">GET</span>
-      <span class="endpoint-path">/v1/apikeys</span>
-      <span class="auth-badge">auth</span>
-      <span class="endpoint-desc">List all API keys</span>
-    </div>
-    <div class="endpoint-body">
-<pre><code>{"keys": [{"id": "key_42", "name": "Primary Key", "key": "agdb_xxx", "created_at": 1748123456, "status": "active", "scope": "full"}]}</code></pre>
-    </div>
-  </div>
-
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method POST">POST</span>
-      <span class="endpoint-path">/v1/apikeys/{key_id}/rotate</span>
-      <span class="auth-badge">auth</span>
-      <span class="endpoint-desc">Rotate (replace) an API key</span>
-    </div>
-    <div class="endpoint-body">
-      <p>Generates a new key and immediately invalidates the old one. The response contains the new key — save it.</p>
-<pre><code>{"id": "key_42", "key": "agdb_newkey", "created_at": 1748123999, "status": "active"}</code></pre>
-    </div>
-  </div>
-
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method DELETE">DELETE</span>
-      <span class="endpoint-path">/v1/apikeys/{key_id}</span>
-      <span class="auth-badge">auth</span>
-      <span class="endpoint-desc">Revoke an API key</span>
-    </div>
-    <div class="endpoint-body">
-<pre><code>{"status": "revoked"}</code></pre>
-    </div>
-  </div>
-</div>
-
-<!-- Sandbox -->
-<div class="section" id="sandbox">
-  <h2>Sandbox</h2>
-  <p>Each tenant runs in an isolated Linux sandbox. The sandbox is started automatically on first request, but can be managed manually.</p>
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method GET">GET</span>
-      <span class="endpoint-path">/v1/sandbox</span>
-      <span class="auth-badge">auth</span>
-      <span class="endpoint-desc">Get sandbox status</span>
-    </div>
-    <div class="endpoint-body">
-<pre><code>{"status": "running", "started_at": 1748123456, "restarts": 0, "region": "eu-west-1"}</code></pre>
-    </div>
-  </div>
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method POST">POST</span>
-      <span class="endpoint-path">/v1/sandbox/start</span>
-      <span class="auth-badge">auth</span>
-    </div>
-    <div class="endpoint-body"><pre><code>{"status": "running"}</code></pre></div>
-  </div>
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method POST">POST</span>
-      <span class="endpoint-path">/v1/sandbox/stop</span>
-      <span class="auth-badge">auth</span>
-    </div>
-    <div class="endpoint-body"><pre><code>{"status": "stopped"}</code></pre></div>
-  </div>
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method POST">POST</span>
-      <span class="endpoint-path">/v1/sandbox/restart</span>
-      <span class="auth-badge">auth</span>
-    </div>
-    <div class="endpoint-body"><pre><code>{"status": "running"}</code></pre></div>
-  </div>
-</div>
-
-<!-- Databases -->
-<div class="section" id="databases">
-  <h2>Databases</h2>
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method GET">GET</span>
-      <span class="endpoint-path">/v1/databases</span>
-      <span class="auth-badge">auth</span>
-      <span class="endpoint-desc">List available databases</span>
-    </div>
-    <div class="endpoint-body">
-<pre><code>{"databases": [{"name": "documents", "status": "active"}]}</code></pre>
-    </div>
-  </div>
-</div>
-
-<!-- Records -->
-<div class="section" id="records">
-  <h2>Records</h2>
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method POST">POST</span>
-      <span class="endpoint-path">/v1/databases/{db}/records</span>
-      <span class="auth-badge">auth</span>
-      <span class="endpoint-desc">Insert a record</span>
-    </div>
-    <div class="endpoint-body">
-      <table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
-      <tbody><tr><td><code>record</code><span class="required">required</span></td><td>object</td><td>Any JSON object to store and index</td></tr></tbody></table>
-<pre><code>// Request
-{"record": {"title": "My document", "body": "Full text content here", "tags": ["zig", "database"]}}
-
-// Response 201
-{"id": 1, "status": "ok"}</code></pre>
-    </div>
-  </div>
-
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method GET">GET</span>
-      <span class="endpoint-path">/v1/databases/{db}/records/{id}</span>
-      <span class="auth-badge">auth</span>
-      <span class="endpoint-desc">Retrieve a record by ID</span>
-    </div>
-    <div class="endpoint-body">
-<pre><code>// Response 200
-{"id": 1, "title": "My document", "body": "Full text content here", "tags": ["zig", "database"]}</code></pre>
-    </div>
-  </div>
-
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method DELETE">DELETE</span>
-      <span class="endpoint-path">/v1/databases/{db}/records/{id}</span>
-      <span class="auth-badge">auth</span>
-      <span class="endpoint-desc">Delete a record</span>
-    </div>
-    <div class="endpoint-body">
-<pre><code>{"status": "deleted", "id": 1}</code></pre>
-    </div>
-  </div>
-</div>
-
-<!-- Search -->
-<div class="section" id="search">
-  <h2>Search</h2>
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method POST">POST</span>
-      <span class="endpoint-path">/v1/databases/{db}/search</span>
-      <span class="auth-badge">auth</span>
-      <span class="endpoint-desc">Hybrid full-text + vector search</span>
-    </div>
-    <div class="endpoint-body">
-      <table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
-      <tbody>
-        <tr><td><code>query</code><span class="required">required</span></td><td>string</td><td>Search query text</td></tr>
-        <tr><td><code>top_k</code><span class="optional">optional</span></td><td>integer</td><td>Max results to return (default: 10)</td></tr>
-      </tbody></table>
-<pre><code>// Request
-{"query": "fast compiled language", "top_k": 5}
-
-// Response 200
-{"results": [{"id": 1, "score": 0.92, "title": "Zig is fast", ...}, ...]}</code></pre>
-      <div class="callout tip">The <code>/v1/databases/{db}/query</code> endpoint accepts the same body and is an alias for search.</div>
-    </div>
-  </div>
-</div>
-
-<!-- Stats -->
-<div class="section" id="stats">
-  <h2>Stats</h2>
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method GET">GET</span>
-      <span class="endpoint-path">/v1/databases/{db}/stats</span>
-      <span class="auth-badge">auth</span>
-      <span class="endpoint-desc">Database statistics</span>
-    </div>
-    <div class="endpoint-body">
-<pre><code>{"records": 1024, "databases": ["documents"], "status": "healthy"}</code></pre>
-    </div>
-  </div>
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method GET">GET</span>
-      <span class="endpoint-path">/v1/stats</span>
-      <span class="auth-badge">auth</span>
-      <span class="endpoint-desc">Overall tenant statistics</span>
-    </div>
-    <div class="endpoint-body">
-<pre><code>{"records": 1024, "databases": ["documents"], "status": "healthy"}</code></pre>
-    </div>
-  </div>
-</div>
-
-<!-- Webhooks -->
-<div class="section" id="webhooks">
-  <h2>Webhooks</h2>
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method GET">GET</span>
-      <span class="endpoint-path">/v1/webhooks</span>
-      <span class="auth-badge">auth</span>
-      <span class="endpoint-desc">List webhooks</span>
-    </div>
-    <div class="endpoint-body">
-<pre><code>{"webhooks": [{"id": "wh_1748123456", "name": "My hook", "url": "https://...", "events": ["insert"], "status": "active"}]}</code></pre>
-    </div>
-  </div>
-
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method POST">POST</span>
-      <span class="endpoint-path">/v1/webhooks</span>
-      <span class="auth-badge">auth</span>
-      <span class="endpoint-desc">Create a webhook</span>
-    </div>
-    <div class="endpoint-body">
-      <table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
-      <tbody>
-        <tr><td><code>url</code><span class="required">required</span></td><td>string</td><td>HTTPS endpoint to notify</td></tr>
-        <tr><td><code>name</code><span class="optional">optional</span></td><td>string</td><td>Friendly name</td></tr>
-        <tr><td><code>events</code><span class="optional">optional</span></td><td>array</td><td>Event types, e.g. <code>["insert", "delete"]</code></td></tr>
-      </tbody></table>
-<pre><code>// Request
-{"name": "Notify Slack", "url": "https://hooks.slack.com/...", "events": ["insert"]}
-
-// Response 201
-{"id": "wh_1748123456", "name": "Notify Slack", "url": "...", "events": ["insert"], "created_at": 1748123456, "status": "active"}</code></pre>
-    </div>
-  </div>
-
-  <div class="endpoint">
-    <div class="endpoint-header" onclick="toggle(this)">
-      <span class="method DELETE">DELETE</span>
-      <span class="endpoint-path">/v1/webhooks/{id}</span>
-      <span class="auth-badge">auth</span>
-      <span class="endpoint-desc">Delete a webhook</span>
-    </div>
-    <div class="endpoint-body"><pre><code>{"status": "deleted"}</code></pre></div>
-  </div>
-</div>
-
+</section>
+<section class="section" id="databases">
+<h2>Adatbázisok</h2>
+<p>Tenantenként a <code>documents</code> adatbázis érhető el. Rekordok és keresési indexek a tenant szerveroldali adattárában tárolódnak.</p>
+<div class="card"><div class="endpoint-head"><span class="method get">GET</span><code class="path">/v1/databases</code><span class="auth">auth</span></div><div class="endpoint-body"><p>A válasz <code>databases</code> tömbjében a használható adatbázisok nevei szerepelnek.</p></div></div>
+</section>
+<section class="section" id="records">
+<h2>Rekordok</h2>
+<p>A rekord objektum szöveges keresési törzse a <code>body</code> mező. A <code>content</code> vagy <code>text</code> mező is használható bemenetként. A címkék a <code>tags</code> sztringtömbben adhatók meg.</p>
+<div class="card"><div class="endpoint-head"><span class="method get">GET</span><code class="path">/v1/databases/documents/records?limit={n}&amp;offset={n}</code><span class="auth">auth</span></div><div class="endpoint-body"><table><thead><tr><th>Paraméter</th><th>Korlát</th><th>Jelentés</th></tr></thead><tbody><tr><td><code>limit</code></td><td>1–1000</td><td>Visszaadott rekordok száma.</td></tr><tr><td><code>offset</code></td><td>0–1000000</td><td>Lapozási eltolás.</td></tr></tbody></table><p>A válasz <code>rows</code>, <code>count</code>, <code>total</code> és <code>took_ms</code> mezőket tartalmaz.</p></div></div>
+<div class="card"><div class="endpoint-head"><span class="method post">POST</span><code class="path">/v1/databases/documents/records</code><span class="auth">auth</span></div><div class="endpoint-body"><h3>Kérés törzs</h3><table><thead><tr><th>Mező</th><th>Típus</th><th>Jelentés</th></tr></thead><tbody><tr><td><code>record</code></td><td>object</td><td>A mentendő rekord.</td></tr><tr><td><code>record.body</code></td><td>string</td><td>Indexelhető szöveges tartalom.</td></tr><tr><td><code>record.tags</code></td><td>string[]</td><td>Opcionális címkék.</td></tr><tr><td><code>record.embedding</code></td><td>number[]</td><td>Opcionális vektor; hiányában a rendszer beágyazást készít, ha engedélyezett.</td></tr></tbody></table><p>A sikeres válasz a szerver által kiosztott <code>id</code> mezőt adja vissza.</p></div></div>
+<div class="grid"><div class="card"><div class="endpoint-head"><span class="method get">GET</span><code class="path">/v1/databases/documents/records/{id}</code><span class="auth">auth</span></div><div class="endpoint-body"><p>A teljes perzisztens rekordot adja vissza. Hiányzó azonosítónál <code>404</code>.</p></div></div><div class="card"><div class="endpoint-head"><span class="method delete">DELETE</span><code class="path">/v1/databases/documents/records/{id}</code><span class="auth">auth</span></div><div class="endpoint-body"><p>Törli a rekordot és frissíti a keresési indexet. Hiányzó azonosítónál <code>404</code>.</p></div></div></div>
+</section>
+<section class="section" id="query">
+<h2>Lekérdezés és keresés</h2>
+<p>A <code>query</code> és <code>search</code> végpont azonos, szerveroldali szöveges keresést futtat. Üres <code>query</code> értéknél tényleges rekordlista készül a megadott limit és offset szerint.</p>
+<div class="card"><div class="endpoint-head"><span class="method post">POST</span><code class="path">/v1/databases/documents/query</code><span class="auth">auth</span></div><div class="endpoint-body"><table><thead><tr><th>Mező</th><th>Típus</th><th>Jelentés</th></tr></thead><tbody><tr><td><code>query</code></td><td>string</td><td>Keresési szöveg; üresen rekordlista.</td></tr><tr><td><code>limit</code></td><td>integer</td><td>1–1000 közötti visszaadási limit.</td></tr><tr><td><code>offset</code></td><td>integer</td><td>Üres keresésnél lapozási eltolás.</td></tr></tbody></table><p>A válaszban <code>rows</code> a rekordokat, <code>hits</code> pedig a keresési azonosítót és relevanciaértéket tartalmazza. A <code>took_ms</code> a szerver által mért végrehajtási idő.</p></div></div>
+<div class="card"><div class="endpoint-head"><span class="method post">POST</span><code class="path">/v1/databases/documents/search</code><span class="auth">auth</span></div><div class="endpoint-body"><p>A <code>query</code> végponttal azonos kérés- és válaszséma.</p></div></div>
+</section>
+<section class="section" id="statistics">
+<h2>Statisztika</h2>
+<p>A statisztikák a futó tenant adatbázisból és a szerveroldalon perzisztált metrikatárolóból készülnek.</p>
+<div class="grid"><div class="card"><div class="endpoint-head"><span class="method get">GET</span><code class="path">/v1/databases/documents/stats</code><span class="auth">auth</span></div><div class="endpoint-body"><p><code>database</code>, <code>records</code> és <code>storage_bytes</code> mezőket ad vissza.</p></div></div><div class="card"><div class="endpoint-head"><span class="method get">GET</span><code class="path">/v1/stats</code><span class="auth">auth</span></div><div class="endpoint-body"><p>A felső szinten adatbázis-statisztikát, az <code>analytics</code> mezőben pedig a tenant tényleges API-méréseit adja vissza.</p></div></div></div>
+</section>
+<section class="section" id="analytics">
+<h2>Analitika</h2>
+<p>A hitelesített API-kérések szerveroldalon kerülnek számlálásra. A metrikák a tenant registry tárolójában maradnak meg, nem a böngésző tárolójában.</p>
+<div class="card"><div class="endpoint-head"><span class="method get">GET</span><code class="path">/v1/analytics</code><span class="auth">auth</span></div><div class="endpoint-body"><table><thead><tr><th>Mező</th><th>Jelentés</th></tr></thead><tbody><tr><td><code>total_requests</code></td><td>Összes rögzített hitelesített API-kérés.</td></tr><tr><td><code>total_errors</code></td><td>Legalább 400-as státuszú rögzített válaszok száma.</td></tr><tr><td><code>error_rate</code></td><td>Hibaarány 0 és 1 közötti arányként.</td></tr><tr><td><code>error_rate_percent</code></td><td>Ugyanez százalékos formában.</td></tr><tr><td><code>avg_latency_ms</code></td><td>Valós szerveroldali átlagos válaszidő.</td></tr><tr><td><code>p95_latency_ms</code>, <code>p99_latency_ms</code></td><td>Hisztogramból számított válaszidő-percentilisek.</td></tr><tr><td><code>hourly</code></td><td>Az utolsó 24 órához tartozó óránkénti számlálók.</td></tr><tr><td><code>endpoints</code></td><td>Útvonal és HTTP metódus szerinti aggregátumok.</td></tr></tbody></table></div></div>
+</section>
+<section class="section" id="audit">
+<h2>Audit</h2>
+<p>Az audit végpont a szerver által megőrzött legutóbbi hitelesített kéréseket adja vissza időbélyeggel, útvonallal, HTTP státusszal és tényleges válaszidővel.</p>
+<div class="card"><div class="endpoint-head"><span class="method get">GET</span><code class="path">/v1/audit</code><span class="auth">auth</span></div><div class="endpoint-body"><p>A válasz <code>events</code> tömbjének elemei: <code>timestamp_ms</code>, <code>method</code>, <code>path</code>, <code>status</code> és <code>latency_ms</code>.</p></div></div>
+</section>
+<section class="section" id="errors">
+<h2>Hibaválaszok</h2>
+<p>Minden hiba JSON objektumot ad <code>error</code> sztringmezővel.</p>
+<div class="card"><div class="table-wrap"><table><thead><tr><th>Státusz</th><th>Jelentés</th></tr></thead><tbody><tr><td><span class="status error">400</span></td><td>Hibás JSON, érvénytelen azonosító vagy lapozási paraméter.</td></tr><tr><td><span class="status error">401</span></td><td>Hiányzó vagy érvénytelen Bearer API kulcs.</td></tr><tr><td><span class="status error">404</span></td><td>Nem létező útvonal, adatbázis, kulcs vagy rekord.</td></tr><tr><td><span class="status error">405</span></td><td>Nem támogatott HTTP metódus.</td></tr><tr><td><span class="status error">409</span></td><td>Már regisztrált e-mail cím.</td></tr><tr><td><span class="status error">413</span></td><td>Túl nagy kérés törzs.</td></tr><tr><td><span class="status error">503</span></td><td>A sandbox vagy az adatbázis-művelet nem elérhető.</td></tr><tr><td><span class="status error">504</span></td><td>A sandbox művelet időtúllépett.</td></tr></tbody></table></div></div>
+</section>
+<footer class="footer">AGDB Cloud API · <a href="/">AGDB Console</a></footer>
 </main>
 </div>
-
-<script>
-function toggle(header) {
-  const body = header.nextElementSibling;
-  body.classList.toggle('open');
-}
-function switchTab(tab, prefix) {
-  const panel = tab.closest('.code-block');
-  const tabs = panel.querySelectorAll('.tab');
-  const idx = Array.from(tabs).indexOf(tab);
-  tabs.forEach((t, i) => { t.classList.toggle('active', i === idx); });
-  panel.querySelectorAll('.code-panel').forEach((p, i) => {
-    p.classList.toggle('active', i === idx);
-  });
-}
-
-// Copy buttons
-document.querySelectorAll('pre').forEach(pre => {
-  const btn = document.createElement('button');
-  btn.className = 'copy-btn';
-  btn.textContent = 'copy';
-  btn.onclick = () => {
-    navigator.clipboard.writeText(pre.textContent).then(() => {
-      btn.textContent = 'copied!';
-      setTimeout(() => btn.textContent = 'copy', 1500);
-    });
-  };
-  pre.style.position = 'relative';
-  pre.appendChild(btn);
-});
-
-// Active nav link
-const sections = document.querySelectorAll('.section[id]');
-const navLinks = document.querySelectorAll('nav a');
-const observer = new IntersectionObserver(entries => {
-  entries.forEach(e => {
-    if (e.isIntersecting) {
-      navLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + e.target.id));
-    }
-  });
-}, { threshold: 0.3 });
-sections.forEach(s => observer.observe(s));
-</script>
 </body>
 </html>

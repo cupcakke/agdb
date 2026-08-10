@@ -47,6 +47,17 @@ pub const QueryResults = struct {
     }
 };
 
+pub const JsonRecords = struct {
+    items: []json_mod.Value,
+    total: u64,
+    allocator: std.mem.Allocator,
+
+    pub fn deinit(self: *JsonRecords) void {
+        for (self.items) |*item| item.deinit(self.allocator);
+        self.allocator.free(self.items);
+    }
+};
+
 pub const Database = struct {
     allocator: std.mem.Allocator,
     config: DatabaseConfig,
@@ -607,7 +618,61 @@ pub const Database = struct {
     pub fn count(self: *Self) u64 {
         self.mutex.lock();
         defer self.mutex.unlock();
-        return self.bm25.docCount();
+        return self.kv.countWithPrefix("rec:");
+    }
+
+    pub fn storageBytes(self: *Self) u64 {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        return self.kv.diskSize();
+    }
+
+    pub fn listJson(self: *Self, allocator: std.mem.Allocator, offset: usize, limit: usize) !JsonRecords {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        var keys = try self.kv.keysWithPrefix(allocator, "rec:");
+        defer {
+            for (keys) |key| allocator.free(key);
+            allocator.free(keys);
+        }
+
+        std.mem.sort([]u8, keys, {}, struct {
+            fn lessThan(_: void, a: []u8, b: []u8) bool {
+                return std.mem.lessThan(u8, a, b);
+            }
+        }.lessThan);
+
+        const total: u64 = @intCast(keys.len);
+        const first = @min(offset, keys.len);
+        const capped_limit = @min(limit, 1000);
+        const last = @min(keys.len, first +| capped_limit);
+        var values = std.ArrayList(json_mod.Value).init(allocator);
+        errdefer {
+            for (values.items) |*value| value.deinit(allocator);
+            values.deinit();
+        }
+
+        for (keys[first..last]) |key| {
+            const id = std.fmt.parseInt(u64, key["rec:".len..], 16) catch continue;
+            var record = try self.loadRecord(id) orelse continue;
+            const item = record_mod.toJson(allocator, record) catch |err| {
+                record.deinit(self.allocator);
+                return err;
+            };
+            record.deinit(self.allocator);
+            values.append(item) catch |err| {
+                var owned_item = item;
+                owned_item.deinit(allocator);
+                return err;
+            };
+        }
+
+        return .{
+            .items = try values.toOwnedSlice(),
+            .total = total,
+            .allocator = allocator,
+        };
     }
 
     pub fn compact(self: *Self) !void {
@@ -650,7 +715,6 @@ test "database basic put search delete" {
     const tags = [_][]const u8{ "memory", "tdai" };
     const id1 = try db.putBytes(.document, 0, "agdb is a unified zig database", &tags);
     const id2 = try db.putBytes(.document, 0, "memory tdai four layer architecture", &tags);
-    _ = id2;
     try testing.expect(id1 >= 1);
 
     var results = try db.searchText("unified zig", 5);
@@ -662,6 +726,18 @@ test "database basic put search delete" {
     try testing.expect(maybe_rec != null);
     defer if (maybe_rec) |*r| r.deinit(testing.allocator);
     try testing.expectEqualStrings("agdb is a unified zig database", maybe_rec.?.body);
+
+    try testing.expectEqual(@as(u64, 2), db.count());
+    var listed = try db.listJson(testing.allocator, 0, 10);
+    defer listed.deinit();
+    try testing.expectEqual(@as(u64, 2), listed.total);
+    try testing.expectEqual(@as(usize, 2), listed.items.len);
+
+    var paged = try db.listJson(testing.allocator, 1, 1);
+    defer paged.deinit();
+    try testing.expectEqual(@as(u64, 2), paged.total);
+    try testing.expectEqual(@as(usize, 1), paged.items.len);
+    try testing.expectEqual(@as(i64, @intCast(id2)), paged.items[0].getField("id").?.asInt().?);
 }
 
 test "database persistence" {
