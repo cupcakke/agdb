@@ -37,8 +37,10 @@ pub const RegistrationHandler = struct {
 
         const record = try self.reg.registerTenant(email);
         const generated_key = try apikey.generateApiKey();
-        const hash = apikey.hashApiKey(&generated_key);
+        const key = generated_key[0 .. generated_key.len - 1];
+        const hash = apikey.hashApiKey(key);
         try self.reg.storeApiKeyHash(record.tenant_id, hash);
+        try self.reg.storeTenantEmail(record.tenant_id, email);
 
         var out_obj = json.makeObject(self.allocator);
         defer out_obj.deinit(self.allocator);
@@ -47,7 +49,8 @@ pub const RegistrationHandler = struct {
         const tid_slice = try std.fmt.bufPrint(&tenant_id_str, "{d}", .{record.tenant_id});
 
         try json.objectPut(self.allocator, &out_obj, "tenant_id", try json.makeString(self.allocator, tid_slice));
-        try json.objectPut(self.allocator, &out_obj, "api_key", try json.makeString(self.allocator, &generated_key));
+        try json.objectPut(self.allocator, &out_obj, "api_key", try json.makeString(self.allocator, key));
+        try json.objectPut(self.allocator, &out_obj, "created_at", json.makeInt(record.created_at_unix));
 
         const body_out = try json.stringify(self.allocator, out_obj);
         defer self.allocator.free(body_out);
@@ -81,6 +84,10 @@ pub const RegistrationHandler = struct {
         const path_slice = tenant_rec.data_path[0..sentinel_idx];
 
         recursiveDelete(path_slice) catch {};
+
+        var metric_key_buffer: [64]u8 = undefined;
+        const metric_key = try std.fmt.bufPrint(&metric_key_buffer, "metrics:v1:{d}", .{tenant_rec.tenant_id});
+        self.reg.deleteKV(metric_key) catch {};
 
         try resp_buf.appendSlice("{\"status\":\"deleted\"}");
     }

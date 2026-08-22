@@ -287,22 +287,6 @@ pub const Registry = struct {
         return self.db.kv.get(allocator, key);
     }
 
-    pub fn storePlainApiKey(self: *Registry, tenant_id: u64, plain_key: []const u8) !void {
-        self.mu.lock();
-        defer self.mu.unlock();
-        var key_buf: [64]u8 = undefined;
-        const key = try std.fmt.bufPrint(&key_buf, "plainkey:{d}", .{tenant_id});
-        try self.db.kv.put(key, plain_key);
-    }
-
-    pub fn getPlainApiKey(self: *Registry, allocator: std.mem.Allocator, tenant_id: u64) !?[]u8 {
-        self.mu.lock();
-        defer self.mu.unlock();
-        var key_buf: [64]u8 = undefined;
-        const key = try std.fmt.bufPrint(&key_buf, "plainkey:{d}", .{tenant_id});
-        return self.db.kv.get(allocator, key);
-    }
-
     pub fn storeKV(self: *Registry, kv_key: []const u8, value: []const u8) !void {
         self.mu.lock();
         defer self.mu.unlock();

@@ -111,7 +111,7 @@ pub const Router = struct {
                 self.pt.pending_mutex.unlock();
                 pending_removed = true;
             }
-            var current_handle = process_table.SandboxHandle{ .tenant_id = 0, .pid = 0, .cgroup_fd = -1, .ipc_fd = -1, .last_activity_ns = 0 };
+            var current_handle = process_table.SandboxHandle{ .tenant_id = 0, .pid = 0, .cgroup_fd = -1, .ipc_fd = -1, .last_activity_ns = 0, .started_at_unix_ms = 0 };
             if (self.pt.getHandle(tenant_rec.tenant_id)) |h| {
                 if (h.pid == active_handle.pid and h.ipc_fd == active_handle.ipc_fd) {
                     current_handle = h;

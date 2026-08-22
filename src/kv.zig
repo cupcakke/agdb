@@ -575,6 +575,40 @@ pub const KvStore = struct {
         return self.file_size;
     }
 
+    pub fn countWithPrefix(self: *Self, prefix: []const u8) u64 {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        var matched_count: u64 = 0;
+        var it = self.index.iterator();
+        while (it.next()) |entry| {
+            if (std.mem.startsWith(u8, entry.key_ptr.*, prefix)) matched_count += 1;
+        }
+        return matched_count;
+    }
+
+    pub fn keysWithPrefix(self: *Self, allocator: std.mem.Allocator, prefix: []const u8) ![][]u8 {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        var keys = std.ArrayList([]u8).init(allocator);
+        errdefer {
+            for (keys.items) |key| allocator.free(key);
+            keys.deinit();
+        }
+
+        var it = self.index.iterator();
+        while (it.next()) |entry| {
+            const key = entry.key_ptr.*;
+            if (!std.mem.startsWith(u8, key, prefix)) continue;
+            const key_copy = try allocator.dupe(u8, key);
+            keys.append(key_copy) catch |err| {
+                allocator.free(key_copy);
+                return err;
+            };
+        }
+        return keys.toOwnedSlice();
+    }
+
     pub fn deadBytes(self: *Self) u64 {
         self.mutex.lock();
         defer self.mutex.unlock();
