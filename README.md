@@ -44,7 +44,7 @@ All runtime components are configured exclusively through environment variables.
 | `AGDB_RUNNER_PATH` | — | Sandbox runner executable |
 | `AGDB_WAL_RECEIVER_THREADS` | `0` | WAL receiver worker pool size; `0` selects `cpu_count`, capped at 32 |
 
-The server accepts connections on a single thread and dispatches them to a fixed worker pool through a bounded queue. There is no thread-per-connection path, so connection storms are shed rather than translated into unbounded thread creation. Requests are parsed by `src/cloud/http_parser.zig`, which enforces `max_header_bytes`, `max_header_count` and `max_body_bytes`, supports chunked transfer encoding and `Expect: 100-continue`, and maps protocol violations onto `400`, `413`, `431`, `501` and `505`.
+The server accepts connections on a single thread and dispatches them to a fixed worker pool through a bounded queue. There is no thread-per-connection path, so connection storms are shed rather than translated into unbounded thread creation. The in-flight connection counter is incremented before the queue push and rolled back on rejection, the shed response is written with a two second send timeout so a slow client cannot stall the accept loop, and `stopWorkers` drains and closes every queued connection before freeing the queue. Requests are parsed by `src/cloud/http_parser.zig`, which enforces `max_header_bytes`, `max_header_count` and `max_body_bytes`, supports chunked transfer encoding and `Expect: 100-continue`, and maps protocol violations onto `400`, `413`, `431`, `501` and `505`.
 
 ### Wake proxy
 
@@ -69,12 +69,14 @@ No endpoint identifier, project identifier, instance identifier or host address 
 | `AGDB_USE_ACCESS_LOG` | `0` | Optional secondary confirmation from an nginx access log |
 | `AGDB_ACCESS_LOG_PATH` | `/var/log/nginx/access.log` | Log file, reopened on rotation by inode and size checks |
 | `AGDB_SHUTDOWN_INHIBIT_FILE` | `/run/agdb/shutdown.inhibit` | Shutdown is skipped while this file exists |
-| `AGDB_DRAIN_UNIT` | `agdb-cloud.service` | Unit stopped before poweroff |
+| `AGDB_DRAIN_UNIT` | `agdb-cloud.service` | Unit name reported in drain logs |
+| `AGDB_DRAIN_COMMAND` | `systemctl stop agdb-cloud.service` | Command executed to drain before poweroff |
+| `AGDB_ACTIVITY_TIMEOUT_MS` | `3000` | Connect, send and receive timeout for the activity probe |
 | `AGDB_DRAIN_TIMEOUT_SECONDS` | `120` | Maximum wait for in-flight work to finish |
 | `AGDB_SHUTDOWN_COMMAND` | `systemctl poweroff` | Command executed after a successful drain |
 | `AGDB_SHUTDOWN_DRY_RUN` | `1` | When set, decisions are logged and nothing is stopped |
 
-The supervisor runs as the unprivileged `agdb-shutdown` user. Its decision is driven by `GET /v1/activity`, which reports `idle_ms`, `active_connections`, `queued_connections`, `in_flight_requests`, `active_sandboxes`, `pending_sandbox_requests`, `shed_connections` and `worker_threads`. Shutdown requires every counter to be zero, the idle window to be exceeded, `AGDB_IDLE_CONFIRMATIONS` consecutive confirmations, and the absence of the inhibit file. If the activity endpoint cannot be reached the streak resets and no shutdown occurs. Parsing an access log is never sufficient on its own and is disabled by default.
+The activity probe is a plain HTTP/1.1 `GET` over a socket with `SO_RCVTIMEO` and `SO_SNDTIMEO` set from `AGDB_ACTIVITY_TIMEOUT_MS`, a 64 KB response ceiling and strict `Content-Length` handling, so an unresponsive or oversized endpoint can never stall the supervisor. The supervisor runs as the unprivileged `agdb-shutdown` user. Its decision is driven by `GET /v1/activity`, which reports `idle_ms`, `active_connections`, `queued_connections`, `in_flight_requests`, `active_sandboxes`, `pending_sandbox_requests`, `shed_connections` and `worker_threads`. Shutdown requires every counter to be zero, the idle window to be exceeded, `AGDB_IDLE_CONFIRMATIONS` consecutive confirmations, and the absence of the inhibit file. If the activity endpoint cannot be reached the streak resets and no shutdown occurs. Parsing an access log is never sufficient on its own and is disabled by default.
 
 The privilege to power the machine off is granted outside the binary, through a polkit rule or a single `sudoers` entry restricted to the configured command. The process never requires root and logs a warning when started as root.
 
@@ -84,9 +86,14 @@ The privilege to power the machine off is granted outside the binary, through a 
 | --- | --- | --- |
 | `GET` | `/v1/health` | Liveness probe |
 | `GET` | `/v1/activity` | Machine-readable activity counters used by the idle supervisor |
-| `GET` | `/v1/metrics` | Request, latency and tenant metrics |
-| `POST` | `/v1/register` | Tenant registration |
-| `*` | `/v1/db/...` | Per-tenant database routes |
+| `GET` | `/v1/stats` | Aggregate request, latency and tenant statistics |
+| `GET` | `/v1/analytics` | Per-tenant analytics over the metrics store |
+| `GET` | `/v1/audit` | Per-tenant audit trail |
+| `POST` | `/v1/auth/register`, `/v1/auth/login` | Account creation and login |
+| `GET`, `POST`, `DELETE` | `/v1/apikeys`, `/v1/apikeys/{id}`, `/v1/apikeys/{id}/rotate` | API key lifecycle |
+| `GET`, `POST` | `/v1/sandbox`, `/v1/sandbox/start`, `/v1/sandbox/stop`, `/v1/sandbox/restart` | Sandbox lifecycle |
+| `GET` | `/v1/databases` | Tenant database inventory |
+| `*` | `/v1/databases/...` | Per-database routes |
 
 ## Deployment
 

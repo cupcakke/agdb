@@ -21,6 +21,7 @@ pub const Config = struct {
     drain_timeout_seconds: u64,
     shutdown_command: []const u8,
     drain_unit: []const u8,
+    drain_command: []const u8,
 
     pub fn fromEnvironment() ConfigError!Config {
         return Config{
@@ -38,6 +39,7 @@ pub const Config = struct {
             .drain_timeout_seconds = try parseU64(envOr("AGDB_DRAIN_TIMEOUT_SECONDS", "120")),
             .shutdown_command = envOr("AGDB_SHUTDOWN_COMMAND", "systemctl poweroff"),
             .drain_unit = envOr("AGDB_DRAIN_UNIT", "agdb-cloud.service"),
+            .drain_command = envOr("AGDB_DRAIN_COMMAND", "systemctl stop agdb-cloud.service"),
         };
     }
 };
@@ -74,6 +76,69 @@ fn parseBool(text: []const u8) ConfigError!bool {
         std.ascii.eqlIgnoreCase(text, "no") or
         std.ascii.eqlIgnoreCase(text, "off")) return false;
     return ConfigError.InvalidBoolean;
+}
+
+pub const MAX_ACTIVITY_RESPONSE_BYTES: usize = 64 * 1024;
+
+pub fn extractHttpBody(response: []const u8) ![]const u8 {
+    if (!std.mem.startsWith(u8, response, "HTTP/1.")) return error.NotHttpResponse;
+    const status_end = std.mem.indexOf(u8, response, "\r\n") orelse return error.MalformedResponse;
+    const status_line = response[0..status_end];
+    var fields = std.mem.tokenizeScalar(u8, status_line, ' ');
+    _ = fields.next() orelse return error.MalformedResponse;
+    const code_text = fields.next() orelse return error.MalformedResponse;
+    const code = std.fmt.parseInt(u16, code_text, 10) catch return error.MalformedResponse;
+    if (code != 200) return error.ActivityEndpointStatus;
+
+    const separator = std.mem.indexOf(u8, response, "\r\n\r\n") orelse return error.MalformedResponse;
+    const headers = response[status_end + 2 .. separator];
+    const body = response[separator + 4 ..];
+
+    var lines = std.mem.splitSequence(u8, headers, "\r\n");
+    while (lines.next()) |line| {
+        const colon = std.mem.indexOfScalar(u8, line, ':') orelse continue;
+        const name = std.mem.trim(u8, line[0..colon], " \t");
+        const value = std.mem.trim(u8, line[colon + 1 ..], " \t");
+        if (std.ascii.eqlIgnoreCase(name, "transfer-encoding")) return error.UnsupportedTransferEncoding;
+        if (std.ascii.eqlIgnoreCase(name, "content-length")) {
+            const declared = std.fmt.parseInt(usize, value, 10) catch return error.MalformedResponse;
+            if (declared > body.len) return error.TruncatedResponse;
+            return body[0..declared];
+        }
+    }
+    return body;
+}
+
+pub fn connectWithTimeout(allocator: std.mem.Allocator, host: []const u8, port: u16, timeout_ms: u32) !std.net.Stream {
+    const list = try std.net.getAddressList(allocator, host, port);
+    defer list.deinit();
+    if (list.addrs.len == 0) return error.UnknownHostName;
+
+    var last_error: anyerror = error.ConnectionRefused;
+    for (list.addrs) |address| {
+        const sock_flags = std.posix.SOCK.STREAM | std.posix.SOCK.CLOEXEC;
+        const fd = std.posix.socket(address.any.family, sock_flags, std.posix.IPPROTO.TCP) catch |err| {
+            last_error = err;
+            continue;
+        };
+        applyTimeout(fd, timeout_ms);
+        std.posix.connect(fd, &address.any, address.getOsSockLen()) catch |err| {
+            std.posix.close(fd);
+            last_error = err;
+            continue;
+        };
+        return std.net.Stream{ .handle = fd };
+    }
+    return last_error;
+}
+
+fn applyTimeout(fd: std.posix.socket_t, timeout_ms: u32) void {
+    const seconds: isize = @intCast(timeout_ms / 1000);
+    const micros: isize = @intCast((timeout_ms % 1000) * 1000);
+    const tv = std.os.linux.timeval{ .sec = seconds, .usec = micros };
+    const bytes = std.mem.asBytes(&tv);
+    _ = std.os.linux.setsockopt(fd, std.os.linux.SOL.SOCKET, std.os.linux.SO.RCVTIMEO, bytes.ptr, @intCast(bytes.len));
+    _ = std.os.linux.setsockopt(fd, std.os.linux.SOL.SOCKET, std.os.linux.SO.SNDTIMEO, bytes.ptr, @intCast(bytes.len));
 }
 
 pub const Activity = struct {
@@ -369,27 +434,37 @@ pub const Supervisor = struct {
         defer arena.deinit();
         const allocator = arena.allocator();
 
-        const url = try std.fmt.allocPrint(allocator, "http://{s}:{d}{s}", .{
+        const stream = try connectWithTimeout(
+            allocator,
             self.config.activity_host,
             self.config.activity_port,
-            self.config.activity_path,
-        });
+            self.config.request_timeout_ms,
+        );
+        defer stream.close();
 
-        var client = std.http.Client{ .allocator = allocator };
-        defer client.deinit();
+        const request = try std.fmt.allocPrint(
+            allocator,
+            "GET {s} HTTP/1.1\r\nHost: {s}:{d}\r\nUser-Agent: agdb-autoshutdown\r\nAccept: application/json\r\nConnection: close\r\n\r\n",
+            .{ self.config.activity_path, self.config.activity_host, self.config.activity_port },
+        );
+        try stream.writeAll(request);
 
-        var body = std.ArrayList(u8).init(allocator);
-        defer body.deinit();
+        var response = std.ArrayList(u8).init(allocator);
+        defer response.deinit();
 
-        const result = try client.fetch(.{
-            .location = .{ .url = url },
-            .method = .GET,
-            .response_storage = .{ .dynamic = &body },
-            .max_append_size = 64 * 1024,
-        });
+        var chunk: [4096]u8 = undefined;
+        while (response.items.len < MAX_ACTIVITY_RESPONSE_BYTES) {
+            const read_len = stream.read(&chunk) catch |err| {
+                if (err == error.WouldBlock) return error.ActivityTimeout;
+                return err;
+            };
+            if (read_len == 0) break;
+            try response.appendSlice(chunk[0..read_len]);
+        }
+        if (response.items.len >= MAX_ACTIVITY_RESPONSE_BYTES) return error.ActivityResponseTooLarge;
 
-        if (@intFromEnum(result.status) != 200) return error.ActivityEndpointStatus;
-        return parseActivityJson(body.items);
+        const body = try extractHttpBody(response.items);
+        return parseActivityJson(body);
     }
 
     fn drainAndShutdown(self: *Self) !void {
@@ -401,7 +476,7 @@ pub const Supervisor = struct {
             return;
         }
 
-        try self.runCommand(&[_][]const u8{ "systemctl", "stop", self.config.drain_unit });
+        try self.runShellWords(self.config.drain_command);
 
         const deadline = std.time.timestamp() + @as(i64, @intCast(self.config.drain_timeout_seconds));
         while (std.time.timestamp() < deadline) {
@@ -410,13 +485,16 @@ pub const Supervisor = struct {
             std.time.sleep(std.time.ns_per_s);
         }
 
-        var parts = std.mem.tokenizeScalar(u8, self.config.shutdown_command, ' ');
+        std.log.info("executing shutdown command: {s}", .{self.config.shutdown_command});
+        try self.runShellWords(self.config.shutdown_command);
+    }
+
+    fn runShellWords(self: *Self, command: []const u8) !void {
         var argv = std.ArrayList([]const u8).init(self.allocator);
         defer argv.deinit();
+        var parts = std.mem.tokenizeAny(u8, command, " \t");
         while (parts.next()) |part| try argv.append(part);
-        if (argv.items.len == 0) return error.EmptyShutdownCommand;
-
-        std.log.info("executing shutdown command: {s}", .{self.config.shutdown_command});
+        if (argv.items.len == 0) return error.EmptyCommand;
         try self.runCommand(argv.items);
     }
 
@@ -560,4 +638,92 @@ test "access log watcher reads the newest parsable line" {
 
     const second = try watcher.lastAccessTimestamp();
     try testing.expectEqual(@as(i64, 1780671600), second);
+}
+
+test "http body extraction honours content length" {
+    const testing = std.testing;
+    const response =
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 13\r\nConnection: close\r\n\r\n" ++
+        "{\"idle_ms\":1}trailing";
+    const body = try extractHttpBody(response);
+    try testing.expectEqualStrings("{\"idle_ms\":1}", body);
+}
+
+test "http body extraction rejects non success and malformed responses" {
+    const testing = std.testing;
+    try testing.expectError(error.ActivityEndpointStatus, extractHttpBody("HTTP/1.1 503 Busy\r\nContent-Length: 0\r\n\r\n"));
+    try testing.expectError(error.NotHttpResponse, extractHttpBody("garbage"));
+    try testing.expectError(error.MalformedResponse, extractHttpBody("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n"));
+    try testing.expectError(error.TruncatedResponse, extractHttpBody("HTTP/1.1 200 OK\r\nContent-Length: 50\r\n\r\nshort"));
+    try testing.expectError(error.UnsupportedTransferEncoding, extractHttpBody("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n0\r\n\r\n"));
+}
+
+test "activity fetch over a real socket enforces the response contract" {
+    const testing = std.testing;
+    const address = try std.net.Address.parseIp4("127.0.0.1", 0);
+    var server = try address.listen(.{ .reuse_address = true });
+    defer server.deinit();
+    const bound_port = server.listen_address.getPort();
+
+    const Responder = struct {
+        fn serve(listener: *std.net.Server) void {
+            const conn = listener.accept() catch return;
+            defer conn.stream.close();
+            var scratch: [1024]u8 = undefined;
+            _ = conn.stream.read(&scratch) catch {};
+            const payload =
+                "{\"last_request_ms\":10,\"idle_ms\":1000000,\"active_connections\":0," ++
+                "\"queued_connections\":0,\"in_flight_requests\":0,\"active_sandboxes\":0," ++
+                "\"pending_sandbox_requests\":0,\"shed_connections\":0,\"worker_threads\":4}";
+            var head: [256]u8 = undefined;
+            const header = std.fmt.bufPrint(
+                &head,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {d}\r\nConnection: close\r\n\r\n",
+                .{payload.len},
+            ) catch return;
+            conn.stream.writeAll(header) catch return;
+            conn.stream.writeAll(payload) catch return;
+        }
+    };
+
+    const thread = try std.Thread.spawn(.{}, Responder.serve, .{&server});
+    defer thread.join();
+
+    var config = Config{
+        .activity_host = "127.0.0.1",
+        .activity_port = bound_port,
+        .activity_path = "/v1/activity",
+        .idle_seconds = 900,
+        .check_interval_seconds = 60,
+        .request_timeout_ms = 2000,
+        .consecutive_idle_checks = 1,
+        .inhibit_file = "/nonexistent/agdb-inhibit",
+        .access_log_path = "/nonexistent/access.log",
+        .use_access_log = false,
+        .dry_run = true,
+        .drain_timeout_seconds = 5,
+        .shutdown_command = "true",
+        .drain_unit = "agdb-cloud.service",
+        .drain_command = "true",
+    };
+
+    var supervisor = Supervisor.init(testing.allocator, config);
+    defer supervisor.deinit();
+
+    const activity = try supervisor.fetchActivity();
+    try testing.expectEqual(@as(u64, 0), activity.active_connections);
+    try testing.expect(activity.isIdle(900));
+
+    config.activity_port = bound_port;
+}
+
+test "connect with timeout fails fast on a closed port" {
+    const testing = std.testing;
+    const address = try std.net.Address.parseIp4("127.0.0.1", 0);
+    var probe = try address.listen(.{ .reuse_address = true });
+    const closed_port = probe.listen_address.getPort();
+    probe.deinit();
+
+    const result = connectWithTimeout(testing.allocator, "127.0.0.1", closed_port, 500);
+    try testing.expectError(error.ConnectionRefused, result);
 }

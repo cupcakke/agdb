@@ -18,6 +18,8 @@ const MAX_HEADER_COUNT: usize = 100;
 const DEFAULT_QUEUE_CAPACITY: usize = 1024;
 const DEFAULT_MAX_WORKERS: usize = 64;
 const READ_CHUNK_BYTES: usize = 16 * 1024;
+const CONNECTION_TIMEOUT_SECONDS: isize = 30;
+const SHED_RESPONSE_TIMEOUT_SECONDS: isize = 2;
 
 fn envUsize(name: []const u8, fallback: usize) usize {
     const text = std.posix.getenv(name) orelse return fallback;
@@ -175,7 +177,13 @@ pub const CloudServer = struct {
     pub fn stopWorkers(self: *CloudServer) void {
         if (!self.running.load(.acquire)) return;
         self.running.store(false, .release);
-        if (self.queue) |*queue| queue.close();
+        if (self.queue) |*queue| {
+            queue.close();
+            while (queue.pop()) |pending| {
+                pending.stream.close();
+                _ = self.active_conn.fetchSub(1, .acq_rel);
+            }
+        }
         for (self.workers) |worker| worker.join();
         if (self.workers.len > 0) self.allocator.free(self.workers);
         self.workers = &[_]std.Thread{};
@@ -231,16 +239,18 @@ pub const CloudServer = struct {
 
         while (self.running.load(.acquire)) {
             const conn = server.accept() catch |err| {
+                if (!self.running.load(.acquire)) return;
                 std.log.err("accept error: {s}", .{@errorName(err)});
                 continue;
             };
-            if (self.active_conn.load(.acquire) >= MAX_CONNECTIONS or !self.queue.?.tryPush(conn)) {
+            const in_flight_conns = self.active_conn.fetchAdd(1, .acq_rel) + 1;
+            if (in_flight_conns > MAX_CONNECTIONS or !self.queue.?.tryPush(conn)) {
+                _ = self.active_conn.fetchSub(1, .acq_rel);
                 _ = self.shed_count.fetchAdd(1, .acq_rel);
                 sendShedResponse(conn.stream);
                 conn.stream.close();
                 continue;
             }
-            _ = self.active_conn.fetchAdd(1, .acq_rel);
         }
     }
 };
@@ -255,6 +265,7 @@ fn workerMain(server: *CloudServer) void {
 }
 
 fn sendShedResponse(stream: std.net.Stream) void {
+    setSocketTimeoutsSeconds(stream.handle, SHED_RESPONSE_TIMEOUT_SECONDS);
     const body = "{\"error\":\"server busy\"}";
     var header_buffer: [256]u8 = undefined;
     const head = std.fmt.bufPrint(
@@ -287,7 +298,11 @@ fn handleConn(ctx: *ConnCtx) void {
 }
 
 fn setSocketTimeouts(fd: i32) void {
-    const tv = std.os.linux.timeval{ .sec = 30, .usec = 0 };
+    setSocketTimeoutsSeconds(fd, CONNECTION_TIMEOUT_SECONDS);
+}
+
+fn setSocketTimeoutsSeconds(fd: i32, seconds: isize) void {
+    const tv = std.os.linux.timeval{ .sec = seconds, .usec = 0 };
     const bytes = std.mem.asBytes(&tv);
     _ = std.os.linux.setsockopt(fd, std.os.linux.SOL.SOCKET, std.os.linux.SO.RCVTIMEO, bytes.ptr, @intCast(bytes.len));
     _ = std.os.linux.setsockopt(fd, std.os.linux.SOL.SOCKET, std.os.linux.SO.SNDTIMEO, bytes.ptr, @intCast(bytes.len));
@@ -317,12 +332,19 @@ fn handleConnInner(ctx: *ConnCtx) !void {
                 try sendError(ctx, status, http_parser.reasonPhrase(status));
                 return;
             };
-            offset += outcome.consumed;
             if (outcome.expect_continue) {
                 ctx.conn.stream.writeAll("HTTP/1.1 100 Continue\r\n\r\n") catch return;
             }
+            if (outcome.consumed == 0 and !outcome.complete) {
+                try sendError(ctx, 400, "malformed request");
+                return;
+            }
+            offset += outcome.consumed;
             if (outcome.complete) break;
-            if (outcome.consumed == 0) break;
+        }
+        if (parser.isComplete() and offset < received) {
+            try sendError(ctx, 400, "unexpected pipelined data");
+            return;
         }
     }
 
@@ -1045,4 +1067,32 @@ test "parse errors map to documented statuses" {
     try testing.expectEqual(@as(u16, 413), parseErrorStatus(http_parser.ParseError.BodyTooLarge));
     try testing.expectEqual(@as(u16, 505), parseErrorStatus(http_parser.ParseError.UnsupportedVersion));
     try testing.expectEqual(@as(u16, 400), parseErrorStatus(error.Unexpected));
+}
+
+test "shed path keeps the connection counter balanced" {
+    const testing = std.testing;
+    var counter = std.atomic.Value(u32).init(0);
+    const before = counter.fetchAdd(1, .acq_rel) + 1;
+    try testing.expectEqual(@as(u32, 1), before);
+    _ = counter.fetchSub(1, .acq_rel);
+    try testing.expectEqual(@as(u32, 0), counter.load(.acquire));
+}
+
+test "queue drain closes every pending entry exactly once" {
+    const testing = std.testing;
+    var queue = try ConnectionQueue.init(testing.allocator, 4);
+    defer queue.deinit();
+
+    const conn = std.net.Server.Connection{
+        .stream = .{ .handle = -1 },
+        .address = try std.net.Address.parseIp("127.0.0.1", 1),
+    };
+    try testing.expect(queue.tryPush(conn));
+    try testing.expect(queue.tryPush(conn));
+    queue.close();
+
+    var drained: usize = 0;
+    while (queue.pop()) |_| drained += 1;
+    try testing.expectEqual(@as(usize, 2), drained);
+    try testing.expectEqual(@as(usize, 0), queue.count());
 }

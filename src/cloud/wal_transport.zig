@@ -509,10 +509,16 @@ pub const WALReceiver = struct {
 
     pub fn deinit(self: *Self) void {
         self.running.store(false, .release);
-        self.server.deinit();
+        if (self.accept_thread != null) {
+            _ = std.os.linux.shutdown(self.server.stream.handle, std.os.linux.SHUT.RDWR);
+        }
         if (self.accept_thread) |t| t.join();
         self.accept_thread = null;
-        if (self.queue) |*queue| queue.close();
+        self.server.deinit();
+        if (self.queue) |*queue| {
+            queue.close();
+            while (queue.pop()) |pending| pending.stream.close();
+        }
         for (self.workers) |worker| worker.join();
         if (self.workers.len > 0) self.allocator.free(self.workers);
         self.workers = &[_]std.Thread{};
@@ -550,7 +556,15 @@ pub const WALReceiver = struct {
 
     fn acceptLoop(self: *Self) void {
         while (self.running.load(.acquire)) {
-            const conn = self.server.accept() catch continue;
+            const conn = self.server.accept() catch |err| {
+                if (!self.running.load(.acquire)) return;
+                if (err == error.SocketNotListening or err == error.FileDescriptorNotASocket) return;
+                continue;
+            };
+            if (!self.running.load(.acquire)) {
+                conn.stream.close();
+                return;
+            }
             const queue_ptr = if (self.queue) |*queue| queue else {
                 conn.stream.close();
                 return;
