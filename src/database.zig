@@ -246,7 +246,7 @@ pub const Database = struct {
         var stored = record;
         stored.id = assigned_id;
         if (stored.embedding == null and self.config.auto_embed and stored.body.len > 0) {
-            stored.embedding = try vector_mod.hashEmbed(self.allocator, stored.body, self.config.embedding_dim);
+            stored.embedding = try vector_mod.featureHashEmbed(self.allocator, stored.body, self.config.embedding_dim);
         }
         errdefer if (record.embedding == null and stored.embedding != null) {
             self.allocator.free(stored.embedding.?);
@@ -418,7 +418,7 @@ pub const Database = struct {
         const vector_query: []const f32 = blk: {
             if (vector) |v| break :blk v;
             if (self.config.auto_embed and query.len > 0) {
-                query_vec_owned = try vector_mod.hashEmbed(self.allocator, query, self.config.embedding_dim);
+                query_vec_owned = try vector_mod.featureHashEmbed(self.allocator, query, self.config.embedding_dim);
                 break :blk query_vec_owned.?;
             }
             break :blk &[_]f32{};

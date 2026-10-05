@@ -60,6 +60,9 @@ pub const cloud = struct {
     pub const router = @import("cloud/router.zig");
     pub const registration = @import("cloud/registration.zig");
     pub const wal_transport = @import("cloud/wal_transport.zig");
+    pub const http_parser = @import("cloud/http_parser.zig");
+    pub const http_server = @import("cloud/http_server.zig");
+    pub const metrics = @import("cloud/metrics.zig");
 };
 
 pub const Runtime = runtime.Runtime;
@@ -154,4 +157,14 @@ test {
     std.testing.refAllDecls(ssi);
     std.testing.refAllDecls(ranker);
     std.testing.refAllDecls(rank_index);
+    std.testing.refAllDecls(cloud);
+    std.testing.refAllDecls(cloud.http_parser);
+    std.testing.refAllDecls(cloud.apikey);
+    std.testing.refAllDecls(cloud.tenant);
+    std.testing.refAllDecls(cloud.registry);
+    std.testing.refAllDecls(cloud.router);
+    std.testing.refAllDecls(cloud.ipc);
+    std.testing.refAllDecls(cloud.metrics);
+    std.testing.refAllDecls(cloud.wal_transport);
+    std.testing.refAllDecls(cloud.http_server);
 }

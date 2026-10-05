@@ -391,12 +391,99 @@ pub const StatelessComputeNode = struct {
     }
 };
 
+const RECEIVER_QUEUE_CAPACITY: usize = 256;
+const RECEIVER_MAX_WORKERS: usize = 32;
+
+fn receiverWorkerCount() usize {
+    if (std.posix.getenv("AGDB_WAL_RECEIVER_THREADS")) |text| {
+        if (text.len > 0) {
+            if (std.fmt.parseInt(usize, text, 10)) |parsed| {
+                if (parsed > 0) return @min(parsed, RECEIVER_MAX_WORKERS);
+            } else |_| {}
+        }
+    }
+    const cpus = std.Thread.getCpuCount() catch 1;
+    if (cpus < 2) return 2;
+    return @min(cpus, RECEIVER_MAX_WORKERS);
+}
+
+pub const ReceiverQueue = struct {
+    allocator: std.mem.Allocator,
+    items: []std.net.Server.Connection,
+    head: usize,
+    tail: usize,
+    len: usize,
+    mutex: std.Thread.Mutex,
+    not_empty: std.Thread.Condition,
+    closed: bool,
+
+    pub fn init(allocator: std.mem.Allocator, capacity: usize) !ReceiverQueue {
+        const effective = if (capacity == 0) 1 else capacity;
+        return ReceiverQueue{
+            .allocator = allocator,
+            .items = try allocator.alloc(std.net.Server.Connection, effective),
+            .head = 0,
+            .tail = 0,
+            .len = 0,
+            .mutex = .{},
+            .not_empty = .{},
+            .closed = false,
+        };
+    }
+
+    pub fn deinit(self: *ReceiverQueue) void {
+        self.allocator.free(self.items);
+    }
+
+    pub fn tryPush(self: *ReceiverQueue, conn: std.net.Server.Connection) bool {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        if (self.closed) return false;
+        if (self.len == self.items.len) return false;
+        self.items[self.tail] = conn;
+        self.tail = (self.tail + 1) % self.items.len;
+        self.len += 1;
+        self.not_empty.signal();
+        return true;
+    }
+
+    pub fn pop(self: *ReceiverQueue) ?std.net.Server.Connection {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        while (self.len == 0 and !self.closed) {
+            self.not_empty.wait(&self.mutex);
+        }
+        if (self.len == 0) return null;
+        const conn = self.items[self.head];
+        self.head = (self.head + 1) % self.items.len;
+        self.len -= 1;
+        return conn;
+    }
+
+    pub fn close(self: *ReceiverQueue) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        self.closed = true;
+        self.not_empty.broadcast();
+    }
+
+    pub fn count(self: *ReceiverQueue) usize {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        return self.len;
+    }
+};
+
 pub const WALReceiver = struct {
     allocator: std.mem.Allocator,
     server: std.net.Server,
     wal: *wal_mod.WAL,
     running: std.atomic.Value(bool),
     accept_thread: ?std.Thread,
+    queue: ?ReceiverQueue,
+    workers: []std.Thread,
+    worker_count: usize,
+    rejected_connections: std.atomic.Value(u64),
     bytes_received: std.atomic.Value(u64),
     frames_received: std.atomic.Value(u64),
 
@@ -411,6 +498,10 @@ pub const WALReceiver = struct {
             .wal = wal,
             .running = std.atomic.Value(bool).init(false),
             .accept_thread = null,
+            .queue = null,
+            .workers = &[_]std.Thread{},
+            .worker_count = receiverWorkerCount(),
+            .rejected_connections = std.atomic.Value(u64).init(0),
             .bytes_received = std.atomic.Value(u64).init(0),
             .frames_received = std.atomic.Value(u64).init(0),
         };
@@ -418,41 +509,83 @@ pub const WALReceiver = struct {
 
     pub fn deinit(self: *Self) void {
         self.running.store(false, .release);
-        self.server.deinit();
+        if (self.accept_thread != null) {
+            _ = std.os.linux.shutdown(self.server.stream.handle, std.os.linux.SHUT.RDWR);
+        }
         if (self.accept_thread) |t| t.join();
+        self.accept_thread = null;
+        self.server.deinit();
+        if (self.queue) |*queue| {
+            queue.close();
+            while (queue.pop()) |pending| pending.stream.close();
+        }
+        for (self.workers) |worker| worker.join();
+        if (self.workers.len > 0) self.allocator.free(self.workers);
+        self.workers = &[_]std.Thread{};
+        if (self.queue) |*queue| queue.deinit();
+        self.queue = null;
     }
 
     pub fn start(self: *Self) !void {
+        if (self.running.load(.acquire)) return;
+        self.queue = try ReceiverQueue.init(self.allocator, RECEIVER_QUEUE_CAPACITY);
+        errdefer {
+            self.queue.?.deinit();
+            self.queue = null;
+        }
+        self.workers = try self.allocator.alloc(std.Thread, self.worker_count);
+        errdefer self.allocator.free(self.workers);
+
         self.running.store(true, .release);
+        var started: usize = 0;
+        errdefer {
+            self.running.store(false, .release);
+            self.queue.?.close();
+            var index: usize = 0;
+            while (index < started) : (index += 1) self.workers[index].join();
+        }
+        while (started < self.worker_count) : (started += 1) {
+            self.workers[started] = try std.Thread.spawn(.{}, workerLoop, .{self});
+        }
         self.accept_thread = try std.Thread.spawn(.{}, acceptLoop, .{self});
+    }
+
+    pub fn rejectedConnections(self: *Self) u64 {
+        return self.rejected_connections.load(.acquire);
     }
 
     fn acceptLoop(self: *Self) void {
         while (self.running.load(.acquire)) {
-            const conn = self.server.accept() catch continue;
-            const ctx = self.allocator.create(ConnCtx) catch {
-                conn.stream.close();
+            const conn = self.server.accept() catch |err| {
+                if (!self.running.load(.acquire)) return;
+                if (err == error.SocketNotListening or err == error.FileDescriptorNotASocket) return;
                 continue;
             };
-            ctx.* = .{ .receiver = self, .conn = conn };
-            const t = std.Thread.spawn(.{}, handleConn, .{ctx}) catch {
+            if (!self.running.load(.acquire)) {
                 conn.stream.close();
-                self.allocator.destroy(ctx);
-                continue;
+                return;
+            }
+            const queue_ptr = if (self.queue) |*queue| queue else {
+                conn.stream.close();
+                return;
             };
-            t.detach();
+            if (!queue_ptr.tryPush(conn)) {
+                _ = self.rejected_connections.fetchAdd(1, .acq_rel);
+                conn.stream.close();
+                continue;
+            }
         }
     }
 
-    const ConnCtx = struct {
-        receiver: *WALReceiver,
-        conn: std.net.Server.Connection,
-    };
-
-    fn handleConn(ctx: *ConnCtx) void {
-        defer ctx.receiver.allocator.destroy(ctx);
-        defer ctx.conn.stream.close();
-        ctx.receiver.receiveFrames(ctx.conn.stream) catch {};
+    fn workerLoop(self: *Self) void {
+        while (true) {
+            const queue_ptr = if (self.queue) |*queue| queue else return;
+            const conn = queue_ptr.pop() orelse return;
+            defer conn.stream.close();
+            self.receiveFrames(conn.stream) catch |err| {
+                std.log.debug("wal receiver stream closed: {s}", .{@errorName(err)});
+            };
+        }
     }
 
     fn receiveFrames(self: *Self, stream: std.net.Stream) !void {
@@ -509,4 +642,30 @@ pub fn parseFrameEndpoint(endpoint: []const u8, default_port: u16) struct { host
         return .{ .host = endpoint[0..colon], .port = port };
     }
     return .{ .host = endpoint, .port = default_port };
+}
+
+test "receiver queue is bounded and drains in order" {
+    const testing = std.testing;
+    var queue = try ReceiverQueue.init(testing.allocator, 2);
+    defer queue.deinit();
+
+    const conn = std.net.Server.Connection{
+        .stream = .{ .handle = -1 },
+        .address = try std.net.Address.parseIp("127.0.0.1", 1),
+    };
+    try testing.expect(queue.tryPush(conn));
+    try testing.expect(queue.tryPush(conn));
+    try testing.expect(!queue.tryPush(conn));
+    try testing.expect(queue.pop() != null);
+    try testing.expect(queue.pop() != null);
+    queue.close();
+    try testing.expect(queue.pop() == null);
+    try testing.expectEqual(@as(usize, 0), queue.count());
+}
+
+test "receiver worker count is bounded" {
+    const testing = std.testing;
+    const count = receiverWorkerCount();
+    try testing.expect(count >= 2);
+    try testing.expect(count <= RECEIVER_MAX_WORKERS);
 }

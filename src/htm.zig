@@ -45,21 +45,14 @@ pub fn xend() void {
     if (!comptime is_x86_64) return;
     asm volatile (
         \\.byte 0x0F, 0x01, 0xD5
-        :
-        :
-        : "memory"
-    );
+        ::: "memory");
 }
 
 pub fn xabort(comptime imm: u8) noreturn {
     if (!comptime is_x86_64) {
         @panic("xabort on non-x86_64");
     }
-    asm volatile (std.fmt.comptimePrint(".byte 0xC6, 0xF8, 0x{X:0>2}", .{imm})
-        :
-        :
-        : "memory"
-    );
+    asm volatile (std.fmt.comptimePrint(".byte 0xC6, 0xF8, 0x{X:0>2}", .{imm}) ::: "memory");
     unreachable;
 }
 
@@ -97,10 +90,7 @@ pub fn htmAbort() void {
     if (comptime is_x86_64) {
         asm volatile (
             \\.byte 0xC6, 0xF8, 0xFF
-            :
-            :
-            : "memory"
-        );
+            ::: "memory");
     }
 }
 

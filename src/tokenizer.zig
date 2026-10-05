@@ -30,10 +30,10 @@ pub const TokenList = struct {
 };
 
 const stopwords_en = [_][]const u8{
-    "a",   "an",  "the", "and", "or", "but", "if", "then", "else",
-    "of",  "in",  "on",  "to",  "is", "are", "as", "by",   "for",
-    "with","from","at",  "be",  "it", "this","that","was","were",
-    "has", "have","had", "i",   "you","he",  "she","we",  "they",
+    "a",    "an",   "the", "and", "or",  "but",  "if",   "then", "else",
+    "of",   "in",   "on",  "to",  "is",  "are",  "as",   "by",   "for",
+    "with", "from", "at",  "be",  "it",  "this", "that", "was",  "were",
+    "has",  "have", "had", "i",   "you", "he",   "she",  "we",   "they",
 };
 
 pub fn isStopword(token: []const u8) bool {

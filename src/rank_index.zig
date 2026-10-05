@@ -149,7 +149,7 @@ pub fn tokenizeToU32(allocator: Allocator, body: []const u8) ![]u32 {
 }
 
 pub fn embedToTensor(allocator: Allocator, body: []const u8, dim: u32) !tensor_mod.Tensor {
-    const vec = try vector_mod.hashEmbed(allocator, body, dim);
+    const vec = try vector_mod.featureHashEmbed(allocator, body, dim);
     defer allocator.free(vec);
     var t = try tensor_mod.Tensor.init(allocator, &.{dim});
     errdefer t.deinit();

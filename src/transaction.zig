@@ -212,6 +212,7 @@ pub const Transaction = struct {
     seq_lock: seqlock.SeqLock,
     stm_write_log: std.ArrayList(STMWriteEntry),
     stm_read_log: std.ArrayList(STMReadEntry),
+    heap_tx_open: bool,
 
     pub fn init(allocator_ptr: std.mem.Allocator, id: u64, wal_tx: wal_mod.Transaction) Transaction {
         const start = tsc.rdtsc();
@@ -232,6 +233,7 @@ pub const Transaction = struct {
             .seq_lock = seqlock.SeqLock.init(),
             .stm_write_log = undefined,
             .stm_read_log = undefined,
+            .heap_tx_open = false,
         };
     }
 
@@ -433,7 +435,13 @@ pub const TransactionManager = struct {
 
         const wal_tx = try self.wal.beginTransaction();
 
-        const tx = Transaction.init(self.allocator, id, wal_tx);
+        try self.heap.beginTransaction();
+        errdefer self.heap.endTransaction() catch |err| {
+            std.log.err("heap transaction end failed while aborting begin of transaction {d}: {s}", .{ id, @errorName(err) });
+        };
+
+        var tx = Transaction.init(self.allocator, id, wal_tx);
+        tx.heap_tx_open = true;
         try self.active_transactions.put(id, tx);
 
         const entry = self.active_transactions.getPtr(id).?;
@@ -501,6 +509,15 @@ pub const TransactionManager = struct {
     }
 
     fn stmCommitLocked(self: *Self, tx: *Transaction) !void {
+        const heap_tx_open = tx.heap_tx_open;
+        tx.heap_tx_open = false;
+        var heap_tx_closed = false;
+        errdefer if (heap_tx_open and !heap_tx_closed) {
+            self.heap.endTransaction() catch |err| {
+                std.log.err("heap transaction end failed for stm transaction {d}: {s}", .{ tx.id, @errorName(err) });
+            };
+        };
+
         if (!self.stm_versions.validateReads(tx)) {
             tx.state = .failed;
             tx.reg_state.syncState(.failed);
@@ -509,16 +526,6 @@ pub const TransactionManager = struct {
                 removed_tx.deinit();
             }
             return error.STMReadValidationFailed;
-        }
-
-        if (self.checkConflictsLocked(tx)) |_| {
-            tx.state = .failed;
-            tx.reg_state.syncState(.failed);
-            if (self.active_transactions.fetchRemove(tx.id)) |entry| {
-                var removed_tx = entry.value;
-                removed_tx.deinit();
-            }
-            return error.TransactionConflict;
         }
 
         for (tx.stm_write_log.items) |*wentry| {
@@ -540,6 +547,11 @@ pub const TransactionManager = struct {
             removed_tx.deinit();
         }
 
+        if (heap_tx_open) {
+            heap_tx_closed = true;
+            try self.heap.endTransaction();
+        }
+
         try self.heap.flush();
     }
 
@@ -554,6 +566,15 @@ pub const TransactionManager = struct {
         if (tsc.is_simulation and tx.reg_state.hasFlag(TX_FLAG_STM)) {
             return self.stmCommitLocked(tx);
         }
+
+        const heap_tx_open = tx.heap_tx_open;
+        tx.heap_tx_open = false;
+        var heap_tx_closed = false;
+        errdefer if (heap_tx_open and !heap_tx_closed) {
+            self.heap.endTransaction() catch |err| {
+                std.log.err("heap transaction end failed for transaction {d}: {s}", .{ tx.id, @errorName(err) });
+            };
+        };
 
         if (self.checkConflictsLocked(tx)) |_| {
             tx.state = .failed;
@@ -594,6 +615,11 @@ pub const TransactionManager = struct {
             removed_tx.deinit();
         }
 
+        if (heap_tx_open) {
+            heap_tx_closed = true;
+            try self.heap.endTransaction();
+        }
+
         try self.heap.flush();
     }
 
@@ -604,6 +630,14 @@ pub const TransactionManager = struct {
         if (tx.state != .active and tx.state != .failed) {
             return error.TransactionNotActive;
         }
+
+        const heap_tx_open = tx.heap_tx_open;
+        tx.heap_tx_open = false;
+        defer if (heap_tx_open) {
+            self.heap.endTransaction() catch |err| {
+                std.log.err("heap transaction end failed during rollback of transaction {d}: {s}", .{ tx.id, @errorName(err) });
+            };
+        };
 
         if (tx.wal_tx) |*wal_tx| {
             try self.wal.rollbackTransaction(wal_tx);

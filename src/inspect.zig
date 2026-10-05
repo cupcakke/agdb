@@ -41,7 +41,7 @@ pub const HeapInspector = struct {
     }
 
     pub fn inspectHeader(self: *HeapInspector) !InspectResult {
-        const hdr = self.heap.header;
+        const hdr = self.heap.heapHeader();
 
         var buffer = std.ArrayList(u8).init(self.allocator);
         defer buffer.deinit();
@@ -240,7 +240,7 @@ pub const HeapInspector = struct {
         var header_ok = true;
         var metadata_ok = true;
 
-        self.heap.header.validate() catch |err| {
+        self.heap.heapHeader().validate() catch |err| {
             try writer.print("Header validation error: {}\n", .{err});
             errors += 1;
             header_ok = false;

@@ -6,12 +6,103 @@ const process_table = @import("process_table.zig");
 const sandbox = @import("sandbox.zig");
 const apikey = @import("apikey.zig");
 const metrics = @import("metrics.zig");
+const http_parser = @import("http_parser.zig");
 const json = @import("../json.zig");
 
 const FRONTEND_HTML = @embedFile("index.html");
 const DOCS_HTML = @embedFile("docs.html");
 const MAX_CONNECTIONS: u32 = 1024;
 const MAX_BODY_SIZE: usize = 16 * 1024 * 1024;
+const MAX_HEADER_BYTES: usize = 32 * 1024;
+const MAX_HEADER_COUNT: usize = 100;
+const DEFAULT_QUEUE_CAPACITY: usize = 1024;
+const DEFAULT_MAX_WORKERS: usize = 64;
+const READ_CHUNK_BYTES: usize = 16 * 1024;
+const CONNECTION_TIMEOUT_SECONDS: isize = 30;
+const SHED_RESPONSE_TIMEOUT_SECONDS: isize = 2;
+
+fn envUsize(name: []const u8, fallback: usize) usize {
+    const text = std.posix.getenv(name) orelse return fallback;
+    if (text.len == 0) return fallback;
+    return std.fmt.parseInt(usize, text, 10) catch fallback;
+}
+
+fn defaultWorkerCount() usize {
+    const configured = envUsize("AGDB_WORKER_THREADS", 0);
+    if (configured > 0) return configured;
+    const cpus = std.Thread.getCpuCount() catch 1;
+    const scaled = cpus * 2;
+    if (scaled < 2) return 2;
+    if (scaled > DEFAULT_MAX_WORKERS) return DEFAULT_MAX_WORKERS;
+    return scaled;
+}
+
+pub const ConnectionQueue = struct {
+    allocator: std.mem.Allocator,
+    items: []std.net.Server.Connection,
+    head: usize,
+    tail: usize,
+    len: usize,
+    mutex: std.Thread.Mutex,
+    not_empty: std.Thread.Condition,
+    closed: bool,
+
+    pub fn init(allocator: std.mem.Allocator, capacity: usize) !ConnectionQueue {
+        const effective = if (capacity == 0) 1 else capacity;
+        return ConnectionQueue{
+            .allocator = allocator,
+            .items = try allocator.alloc(std.net.Server.Connection, effective),
+            .head = 0,
+            .tail = 0,
+            .len = 0,
+            .mutex = .{},
+            .not_empty = .{},
+            .closed = false,
+        };
+    }
+
+    pub fn deinit(self: *ConnectionQueue) void {
+        self.allocator.free(self.items);
+    }
+
+    pub fn tryPush(self: *ConnectionQueue, conn: std.net.Server.Connection) bool {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        if (self.closed) return false;
+        if (self.len == self.items.len) return false;
+        self.items[self.tail] = conn;
+        self.tail = (self.tail + 1) % self.items.len;
+        self.len += 1;
+        self.not_empty.signal();
+        return true;
+    }
+
+    pub fn pop(self: *ConnectionQueue) ?std.net.Server.Connection {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        while (self.len == 0 and !self.closed) {
+            self.not_empty.wait(&self.mutex);
+        }
+        if (self.len == 0) return null;
+        const conn = self.items[self.head];
+        self.head = (self.head + 1) % self.items.len;
+        self.len -= 1;
+        return conn;
+    }
+
+    pub fn close(self: *ConnectionQueue) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        self.closed = true;
+        self.not_empty.broadcast();
+    }
+
+    pub fn count(self: *ConnectionQueue) usize {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        return self.len;
+    }
+};
 
 pub const CloudServer = struct {
     allocator: std.mem.Allocator,
@@ -22,7 +113,14 @@ pub const CloudServer = struct {
     metric_store: metrics.MetricsStore,
     port: u16,
     active_conn: std.atomic.Value(u32),
+    shed_count: std.atomic.Value(u64),
+    last_request_ms: std.atomic.Value(i64),
+    in_flight: std.atomic.Value(u32),
     sandbox_mutex: std.Thread.Mutex,
+    queue: ?ConnectionQueue,
+    workers: []std.Thread,
+    worker_count: usize,
+    running: std.atomic.Value(bool),
 
     pub fn init(allocator: std.mem.Allocator, reg_ptr: *registry.Registry, pt_ptr: *process_table.ProcessTable, port: u16) CloudServer {
         return .{
@@ -34,12 +132,99 @@ pub const CloudServer = struct {
             .metric_store = metrics.MetricsStore.init(allocator, reg_ptr),
             .port = port,
             .active_conn = std.atomic.Value(u32).init(0),
+            .shed_count = std.atomic.Value(u64).init(0),
+            .last_request_ms = std.atomic.Value(i64).init(std.time.milliTimestamp()),
+            .in_flight = std.atomic.Value(u32).init(0),
             .sandbox_mutex = .{},
+            .queue = null,
+            .workers = &[_]std.Thread{},
+            .worker_count = defaultWorkerCount(),
+            .running = std.atomic.Value(bool).init(false),
         };
     }
 
     pub fn deinit(self: *CloudServer) void {
+        self.stopWorkers();
         self.metric_store.deinit();
+    }
+
+    pub fn startWorkers(self: *CloudServer) !void {
+        if (self.running.load(.acquire)) return;
+        const capacity = envUsize("AGDB_CONNECTION_QUEUE", DEFAULT_QUEUE_CAPACITY);
+        self.queue = try ConnectionQueue.init(self.allocator, capacity);
+        errdefer {
+            self.queue.?.deinit();
+            self.queue = null;
+        }
+
+        self.workers = try self.allocator.alloc(std.Thread, self.worker_count);
+        errdefer self.allocator.free(self.workers);
+
+        self.running.store(true, .release);
+        var started: usize = 0;
+        errdefer {
+            self.running.store(false, .release);
+            self.queue.?.close();
+            var index: usize = 0;
+            while (index < started) : (index += 1) self.workers[index].join();
+        }
+        while (started < self.worker_count) : (started += 1) {
+            self.workers[started] = try std.Thread.spawn(.{}, workerMain, .{self});
+        }
+        std.log.info("cloud server worker pool started with {d} workers and queue capacity {d}", .{ self.worker_count, capacity });
+    }
+
+    pub fn stopWorkers(self: *CloudServer) void {
+        if (!self.running.load(.acquire)) return;
+        self.running.store(false, .release);
+        if (self.queue) |*queue| {
+            queue.close();
+            while (queue.pop()) |pending| {
+                pending.stream.close();
+                _ = self.active_conn.fetchSub(1, .acq_rel);
+            }
+        }
+        for (self.workers) |worker| worker.join();
+        if (self.workers.len > 0) self.allocator.free(self.workers);
+        self.workers = &[_]std.Thread{};
+        if (self.queue) |*queue| queue.deinit();
+        self.queue = null;
+    }
+
+    pub fn shedCount(self: *CloudServer) u64 {
+        return self.shed_count.load(.acquire);
+    }
+
+    pub const ActivitySnapshot = struct {
+        last_request_ms: i64,
+        idle_ms: i64,
+        active_connections: u32,
+        queued_connections: usize,
+        in_flight_requests: u32,
+        active_sandboxes: usize,
+        pending_sandbox_requests: usize,
+        shed_connections: u64,
+        worker_threads: usize,
+    };
+
+    pub fn activitySnapshot(self: *CloudServer) ActivitySnapshot {
+        const last_ms = self.last_request_ms.load(.acquire);
+        const now_ms = std.time.milliTimestamp();
+        const sandbox_activity_ns = self.pt.lastSandboxActivityNs();
+        const sandbox_activity_ms: i64 = if (sandbox_activity_ns == 0) 0 else @divTrunc(sandbox_activity_ns, std.time.ns_per_ms);
+        const newest_ms = if (sandbox_activity_ms > last_ms) sandbox_activity_ms else last_ms;
+        const idle = if (now_ms > newest_ms) now_ms - newest_ms else 0;
+        return ActivitySnapshot{
+            .last_request_ms = newest_ms,
+            .idle_ms = idle,
+            .active_connections = self.active_conn.load(.acquire),
+            .queued_connections = if (self.queue) |*queue| queue.count() else 0,
+            .in_flight_requests = self.in_flight.load(.acquire),
+            .active_sandboxes = self.pt.activeSandboxCount(),
+            .pending_sandbox_requests = self.pt.pendingRequestCount(),
+            .shed_connections = self.shed_count.load(.acquire),
+            .worker_threads = self.worker_count,
+        };
     }
 
     pub fn run(self: *CloudServer) !void {
@@ -47,35 +232,50 @@ pub const CloudServer = struct {
         var server = try addr.listen(.{ .reuse_address = true });
         defer server.deinit();
 
+        try self.startWorkers();
+        defer self.stopWorkers();
+
         std.log.info("agdb cloud server listening on port {d}", .{self.port});
 
-        while (true) {
+        while (self.running.load(.acquire)) {
             const conn = server.accept() catch |err| {
-                std.log.err("accept error: {}", .{err});
+                if (!self.running.load(.acquire)) return;
+                std.log.err("accept error: {s}", .{@errorName(err)});
                 continue;
             };
-            if (self.active_conn.load(.acquire) >= MAX_CONNECTIONS) {
+            const in_flight_conns = self.active_conn.fetchAdd(1, .acq_rel) + 1;
+            if (in_flight_conns > MAX_CONNECTIONS or !self.queue.?.tryPush(conn)) {
+                _ = self.active_conn.fetchSub(1, .acq_rel);
+                _ = self.shed_count.fetchAdd(1, .acq_rel);
+                sendShedResponse(conn.stream);
                 conn.stream.close();
                 continue;
             }
-            _ = self.active_conn.fetchAdd(1, .acq_rel);
-            const ctx = self.allocator.create(ConnCtx) catch {
-                _ = self.active_conn.fetchSub(1, .acq_rel);
-                conn.stream.close();
-                continue;
-            };
-            ctx.* = .{ .server = self, .conn = conn };
-            const thread = std.Thread.spawn(.{}, handleConn, .{ctx}) catch |err| {
-                std.log.err("connection thread error: {}", .{err});
-                conn.stream.close();
-                _ = self.active_conn.fetchSub(1, .acq_rel);
-                self.allocator.destroy(ctx);
-                continue;
-            };
-            thread.detach();
         }
     }
 };
+
+fn workerMain(server: *CloudServer) void {
+    while (true) {
+        const queue_ptr = if (server.queue) |*queue| queue else return;
+        const conn = queue_ptr.pop() orelse return;
+        var ctx = ConnCtx{ .server = server, .conn = conn };
+        handleConn(&ctx);
+    }
+}
+
+fn sendShedResponse(stream: std.net.Stream) void {
+    setSocketTimeoutsSeconds(stream.handle, SHED_RESPONSE_TIMEOUT_SECONDS);
+    const body = "{\"error\":\"server busy\"}";
+    var header_buffer: [256]u8 = undefined;
+    const head = std.fmt.bufPrint(
+        &header_buffer,
+        "HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {d}\r\nRetry-After: 2\r\nConnection: close\r\n\r\n",
+        .{body.len},
+    ) catch return;
+    stream.writeAll(head) catch return;
+    stream.writeAll(body) catch return;
+}
 
 const ConnCtx = struct {
     server: *CloudServer,
@@ -90,16 +290,19 @@ const ConnCtx = struct {
 
 fn handleConn(ctx: *ConnCtx) void {
     defer ctx.conn.stream.close();
-    defer ctx.server.allocator.destroy(ctx);
     defer _ = ctx.server.active_conn.fetchSub(1, .acq_rel);
     setSocketTimeouts(ctx.conn.stream.handle);
     handleConnInner(ctx) catch |err| {
-        std.log.debug("connection error: {}", .{err});
+        std.log.debug("connection error: {s}", .{@errorName(err)});
     };
 }
 
 fn setSocketTimeouts(fd: i32) void {
-    const tv = std.os.linux.timeval{ .sec = 30, .usec = 0 };
+    setSocketTimeoutsSeconds(fd, CONNECTION_TIMEOUT_SECONDS);
+}
+
+fn setSocketTimeoutsSeconds(fd: i32, seconds: isize) void {
+    const tv = std.os.linux.timeval{ .sec = seconds, .usec = 0 };
     const bytes = std.mem.asBytes(&tv);
     _ = std.os.linux.setsockopt(fd, std.os.linux.SOL.SOCKET, std.os.linux.SO.RCVTIMEO, bytes.ptr, @intCast(bytes.len));
     _ = std.os.linux.setsockopt(fd, std.os.linux.SOL.SOCKET, std.os.linux.SO.SNDTIMEO, bytes.ptr, @intCast(bytes.len));
@@ -111,77 +314,55 @@ fn handleConnInner(ctx: *ConnCtx) !void {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    var buffer: [65536]u8 = undefined;
-    var total: usize = 0;
-    while (true) {
-        if (total == buffer.len) {
-            try sendError(ctx, 431, "request headers too large");
+    var parser = http_parser.Parser.init(arena, .{
+        .max_header_bytes = MAX_HEADER_BYTES,
+        .max_header_count = MAX_HEADER_COUNT,
+        .max_body_bytes = MAX_BODY_SIZE,
+    });
+    defer parser.deinit();
+
+    var read_buffer: [READ_CHUNK_BYTES]u8 = undefined;
+    while (!parser.isComplete()) {
+        const received = ctx.conn.stream.read(&read_buffer) catch return;
+        if (received == 0) return;
+        var offset: usize = 0;
+        while (offset < received) {
+            const outcome = parser.feed(read_buffer[offset..received]) catch |err| {
+                const status = parseErrorStatus(err);
+                try sendError(ctx, status, http_parser.reasonPhrase(status));
+                return;
+            };
+            if (outcome.expect_continue) {
+                ctx.conn.stream.writeAll("HTTP/1.1 100 Continue\r\n\r\n") catch return;
+            }
+            if (outcome.consumed == 0 and !outcome.complete) {
+                try sendError(ctx, 400, "malformed request");
+                return;
+            }
+            offset += outcome.consumed;
+            if (outcome.complete) break;
+        }
+        if (parser.isComplete() and offset < received) {
+            try sendError(ctx, 400, "unexpected pipelined data");
             return;
         }
-        const received = ctx.conn.stream.read(buffer[total..]) catch return;
-        if (received == 0) return;
-        total += received;
-        if (std.mem.indexOf(u8, buffer[0..total], "\r\n\r\n") != null) break;
     }
 
-    const raw = buffer[0..total];
-    const header_end = std.mem.indexOf(u8, raw, "\r\n\r\n") orelse return;
-    const header_section = raw[0..header_end];
-    var lines = std.mem.splitSequence(u8, header_section, "\r\n");
-    const request_line = lines.next() orelse return;
-    var request_parts = std.mem.splitScalar(u8, request_line, ' ');
-    const method = request_parts.next() orelse return;
-    const target = request_parts.next() orelse return;
-    if (request_parts.next() == null) return;
+    const request = &parser.request;
+    const method = request.method.toSlice();
+    const path = request.path;
+    const query = request.query;
+    const body = request.body.items;
+    const auth_header = request.findHeader("authorization");
 
-    const query_start = std.mem.indexOfScalar(u8, target, '?');
-    const path = if (query_start) |index| target[0..index] else target;
-    const query = if (query_start) |index| target[index + 1 ..] else "";
     if (path.len == 0 or path[0] != '/') {
         try sendError(ctx, 400, "invalid request target");
         return;
     }
 
-    var content_length: usize = 0;
-    var auth_header: ?[]const u8 = null;
-    while (lines.next()) |line| {
-        if (std.ascii.startsWithIgnoreCase(line, "Content-Length:")) {
-            const value = std.mem.trim(u8, line["Content-Length:".len..], " \t");
-            content_length = std.fmt.parseInt(usize, value, 10) catch {
-                try sendError(ctx, 400, "invalid content length");
-                return;
-            };
-            if (content_length > MAX_BODY_SIZE) {
-                try sendError(ctx, 413, "payload too large");
-                return;
-            }
-        } else if (std.ascii.startsWithIgnoreCase(line, "Authorization:")) {
-            auth_header = std.mem.trim(u8, line["Authorization:".len..], " \t");
-        }
-    }
-
-    const body_start = header_end + 4;
-    if (total < body_start) {
-        try sendError(ctx, 400, "invalid request body");
-        return;
-    }
-    var body = try arena.alloc(u8, content_length);
-    if (content_length > 0) {
-        const available = @min(total - body_start, content_length);
-        if (available > 0) @memcpy(body[0..available], raw[body_start .. body_start + available]);
-        var read_count = available;
-        while (read_count < content_length) {
-            const received = ctx.conn.stream.read(body[read_count..]) catch {
-                try sendError(ctx, 400, "incomplete request body");
-                return;
-            };
-            if (received == 0) {
-                try sendError(ctx, 400, "incomplete request body");
-                return;
-            }
-            read_count += received;
-        }
-    }
+    ctx.server.last_request_ms.store(std.time.milliTimestamp(), .release);
+    _ = ctx.server.in_flight.fetchAdd(1, .acq_rel);
+    defer _ = ctx.server.in_flight.fetchSub(1, .acq_rel);
 
     ctx.request_started_ns = std.time.nanoTimestamp();
     ctx.request_method = method;
@@ -206,6 +387,27 @@ fn handleConnInner(ctx: *ConnCtx) !void {
 
     if (std.mem.eql(u8, path, "/v1/health") and std.mem.eql(u8, method, "GET")) {
         try sendJson(ctx, 200, "{\"status\":\"ok\",\"version\":\"2.4.0\"}");
+        return;
+    }
+
+    if (std.mem.eql(u8, path, "/v1/activity") and std.mem.eql(u8, method, "GET")) {
+        const snapshot = ctx.server.activitySnapshot();
+        const payload = try std.fmt.allocPrint(
+            arena,
+            "{{\"last_request_ms\":{d},\"idle_ms\":{d},\"active_connections\":{d},\"queued_connections\":{d},\"in_flight_requests\":{d},\"active_sandboxes\":{d},\"pending_sandbox_requests\":{d},\"shed_connections\":{d},\"worker_threads\":{d}}}",
+            .{
+                snapshot.last_request_ms,
+                snapshot.idle_ms,
+                snapshot.active_connections,
+                snapshot.queued_connections,
+                snapshot.in_flight_requests,
+                snapshot.active_sandboxes,
+                snapshot.pending_sandbox_requests,
+                snapshot.shed_connections,
+                snapshot.worker_threads,
+            },
+        );
+        try sendJson(ctx, 200, payload);
         return;
     }
 
@@ -367,6 +569,14 @@ fn handleConnInner(ctx: *ConnCtx) !void {
     }
 
     try sendError(ctx, 404, "not found");
+}
+
+fn parseErrorStatus(err: anyerror) u16 {
+    inline for (@typeInfo(http_parser.ParseError).error_set.?) |candidate| {
+        const value = @field(http_parser.ParseError, candidate.name);
+        if (err == value) return http_parser.statusForError(value);
+    }
+    return 400;
 }
 
 fn recordRequest(ctx: *ConnCtx) void {
@@ -823,4 +1033,66 @@ test "sandbox errors map to HTTP statuses" {
     try testing.expectEqual(@as(?u16, 404), sandboxErrorStatus(testing.allocator, "{\"error\":\"not_found\"}"));
     try testing.expectEqual(@as(?u16, 400), sandboxErrorStatus(testing.allocator, "{\"error\":\"unknown_op\"}"));
     try testing.expectEqual(@as(?u16, null), sandboxErrorStatus(testing.allocator, "{\"records\":1}"));
+}
+
+test "connection queue bounds and shedding" {
+    const testing = std.testing;
+    var queue = try ConnectionQueue.init(testing.allocator, 2);
+    defer queue.deinit();
+
+    const conn = std.net.Server.Connection{
+        .stream = .{ .handle = -1 },
+        .address = try std.net.Address.parseIp("127.0.0.1", 1),
+    };
+    try testing.expect(queue.tryPush(conn));
+    try testing.expect(queue.tryPush(conn));
+    try testing.expect(!queue.tryPush(conn));
+    try testing.expectEqual(@as(usize, 2), queue.count());
+    try testing.expect(queue.pop() != null);
+    try testing.expect(queue.tryPush(conn));
+    queue.close();
+    try testing.expect(!queue.tryPush(conn));
+}
+
+test "worker count is bounded and positive" {
+    const testing = std.testing;
+    const count = defaultWorkerCount();
+    try testing.expect(count >= 2);
+    try testing.expect(count <= DEFAULT_MAX_WORKERS);
+}
+
+test "parse errors map to documented statuses" {
+    const testing = std.testing;
+    try testing.expectEqual(@as(u16, 431), parseErrorStatus(http_parser.ParseError.HeaderTooLarge));
+    try testing.expectEqual(@as(u16, 413), parseErrorStatus(http_parser.ParseError.BodyTooLarge));
+    try testing.expectEqual(@as(u16, 505), parseErrorStatus(http_parser.ParseError.UnsupportedVersion));
+    try testing.expectEqual(@as(u16, 400), parseErrorStatus(error.Unexpected));
+}
+
+test "shed path keeps the connection counter balanced" {
+    const testing = std.testing;
+    var counter = std.atomic.Value(u32).init(0);
+    const before = counter.fetchAdd(1, .acq_rel) + 1;
+    try testing.expectEqual(@as(u32, 1), before);
+    _ = counter.fetchSub(1, .acq_rel);
+    try testing.expectEqual(@as(u32, 0), counter.load(.acquire));
+}
+
+test "queue drain closes every pending entry exactly once" {
+    const testing = std.testing;
+    var queue = try ConnectionQueue.init(testing.allocator, 4);
+    defer queue.deinit();
+
+    const conn = std.net.Server.Connection{
+        .stream = .{ .handle = -1 },
+        .address = try std.net.Address.parseIp("127.0.0.1", 1),
+    };
+    try testing.expect(queue.tryPush(conn));
+    try testing.expect(queue.tryPush(conn));
+    queue.close();
+
+    var drained: usize = 0;
+    while (queue.pop()) |_| drained += 1;
+    try testing.expectEqual(@as(usize, 2), drained);
+    try testing.expectEqual(@as(usize, 0), queue.count());
 }

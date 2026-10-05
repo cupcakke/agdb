@@ -86,6 +86,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    wake_mod.addImport("agdb", lib_mod);
+    wake_mod.addImport("build_options", build_options_mod);
     const wake_exe = b.addExecutable(.{
         .name = "agdb-wake-proxy",
         .root_module = wake_mod,
@@ -102,6 +104,9 @@ pub fn build(b: *std.Build) void {
         .root_module = autoshutdown_mod,
     });
     b.installArtifact(autoshutdown_exe);
+
+    const autoshutdown_tests = b.addTest(.{ .root_module = autoshutdown_mod });
+    const run_autoshutdown_tests = b.addRunArtifact(autoshutdown_tests);
 
     const lib_tests = b.addTest(.{
         .root_module = lib_mod,
@@ -120,9 +125,16 @@ pub fn build(b: *std.Build) void {
     });
     const run_integration_tests = b.addRunArtifact(integration_tests);
 
+    const wake_tests = b.addTest(.{
+        .root_module = wake_mod,
+    });
+    const run_wake_tests = b.addRunArtifact(wake_tests);
+
     const test_step = b.step("test", "Run unit + integration tests");
     test_step.dependOn(&run_lib_tests.step);
     test_step.dependOn(&run_integration_tests.step);
+    test_step.dependOn(&run_wake_tests.step);
+    test_step.dependOn(&run_autoshutdown_tests.step);
 
     const integration_step = b.step("test-integration", "Run integration tests only");
     integration_step.dependOn(&run_integration_tests.step);

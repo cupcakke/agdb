@@ -443,6 +443,7 @@ pub const PersistentHeap = struct {
     dirty_page_count: u64,
     is_dirty: bool,
     active_transaction: bool,
+    transaction_depth: u32,
     file_lock_held: bool,
     journal_path: ?[]u8,
 
@@ -497,6 +498,7 @@ pub const PersistentHeap = struct {
                 .dirty_page_count = 0,
                 .is_dirty = false,
                 .active_transaction = false,
+                .transaction_depth = 0,
                 .file_lock_held = false,
                 .journal_path = null,
             };
@@ -609,6 +611,7 @@ pub const PersistentHeap = struct {
             .dirty_page_count = 0,
             .is_dirty = false,
             .active_transaction = false,
+            .transaction_depth = 0,
             .file_lock_held = true,
             .journal_path = null,
         };
@@ -1024,8 +1027,13 @@ pub const PersistentHeap = struct {
         try self.vfs.syncRange(payload_offset, data_len);
         try self.vfs.fsync();
 
+        const payload_len = try u64ToUsize(payload_capacity);
+        const payload_image = try self.allocator.alloc(u8, payload_len);
+        defer self.allocator.free(payload_image);
+        try self.vfs.readRange(payload_offset, payload_image);
+
         var nh = obj_hdr.*;
-        nh.payload_checksum = computePayloadChecksum(data);
+        nh.payload_checksum = computePayloadChecksum(payload_image);
         nh.updateChecksum();
         const nh_bytes = std.mem.asBytes(&nh);
         try self.vfs.writeRange(hdr_off, nh_bytes[0..@sizeOf(header.ObjectHeader)]);
@@ -1255,7 +1263,12 @@ pub const PersistentHeap = struct {
     }
 
     pub fn beginTransaction(self: *PersistentHeap) !void {
-        if (self.active_transaction) return error.TransactionAlreadyActive;
+        if (self.transaction_depth == std.math.maxInt(u32)) return error.TransactionDepthOverflow;
+        if (self.transaction_depth > 0) {
+            self.transaction_depth += 1;
+            self.active_transaction = true;
+            return;
+        }
         const hh = self.heapHeaderMut();
         const ov = @addWithOverflow(hh.transaction_id, 1);
         if (ov[1] != 0) return error.TransactionIdOverflow;
@@ -1264,11 +1277,16 @@ pub const PersistentHeap = struct {
         hh.updateChecksum();
         try self.persistHeaderRange();
         try self.vfs.fsync();
+        self.transaction_depth = 1;
         self.active_transaction = true;
     }
 
     pub fn endTransaction(self: *PersistentHeap) !void {
-        if (!self.active_transaction) return error.NoActiveTransaction;
+        if (self.transaction_depth == 0) return error.NoActiveTransaction;
+        if (self.transaction_depth > 1) {
+            self.transaction_depth -= 1;
+            return;
+        }
         try self.flush();
         try self.vfs.fsync();
         const hh = self.heapHeaderMut();
@@ -1276,7 +1294,12 @@ pub const PersistentHeap = struct {
         hh.updateChecksum();
         try self.persistHeaderRange();
         try self.vfs.fsync();
+        self.transaction_depth = 0;
         self.active_transaction = false;
+    }
+
+    pub fn transactionDepth(self: *const PersistentHeap) u32 {
+        return self.transaction_depth;
     }
 
     pub fn getTransactionId(self: *const PersistentHeap) u64 {
