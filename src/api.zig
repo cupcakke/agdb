@@ -554,7 +554,7 @@ test "persistent store allocation" {
     const ptr = try store.allocate(128);
     try testing.expect(!ptr.isNull());
 
-    const test_data = [_]u8{1, 2, 3, 4, 5, 6, 7, 8};
+    const test_data = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
     try store.write(ptr, &test_data);
 
     const read_val = try store.read([8]u8, ptr);

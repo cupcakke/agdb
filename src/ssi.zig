@@ -226,7 +226,6 @@ pub const SSI = struct {
         return self.root.?;
     }
 
-
     fn insertIntoLeaf(self: *SSI, leaf: *Node, tokens: []const u32, position: u64, score: f32, anchor_hash: u64) !bool {
         if (!leaf.is_leaf or leaf.height != 0) {
             return error.InvalidNodeState;
@@ -806,4 +805,3 @@ pub const SSI = struct {
         return validateNode(root);
     }
 };
-

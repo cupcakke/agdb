@@ -1,7 +1,7 @@
 const std = @import("std");
 const agdb = @import("agdb");
-const tsc = @import("tsc.zig");
-const concurrency = @import("concurrency.zig");
+const tsc = agdb.tsc;
+const concurrency = agdb.concurrency;
 
 test "end to end put and search" {
     const testing = std.testing;
@@ -73,7 +73,7 @@ test "bm25 + vector combined" {
     const testing = std.testing;
     var bm = agdb.bm25.Bm25Index.init(testing.allocator, .{});
     defer bm.deinit();
-    var vi = agdb.vector.VectorIndex.init(testing.allocator, 8, .cosine);
+    var vi = try agdb.vector.VectorIndex.init(testing.allocator, 8, .cosine);
     defer vi.deinit();
 
     try bm.addDocument(1, "alpha beta gamma");
@@ -190,9 +190,9 @@ test "dst stm transaction commit and retry" {
         tsc.is_simulation = false;
     }
 
-    const pheap_mod = @import("pheap.zig");
-    const wal_mod = @import("wal.zig");
-    const tx_mod = @import("transaction.zig");
+    const pheap_mod = agdb.pheap;
+    const wal_mod = agdb.wal;
+    const tx_mod = agdb.transaction;
 
     const heap = try pheap_mod.PersistentHeap.init(alloc, "/tmp/dst_stm_test.dat", 1024 * 1024, null);
     defer heap.deinit() catch {};
@@ -225,7 +225,7 @@ test "dst kv sim backend put and get" {
         tsc.is_simulation = false;
     }
 
-    const kv_mod = @import("kv.zig");
+    const kv_mod = agdb.kv;
 
     var store = try kv_mod.KvStore.open(alloc, "/tmp/dst_kv_sim.kv", 0);
     defer store.close();
@@ -253,7 +253,7 @@ test "dst wal sim backend transaction lifecycle" {
         tsc.is_simulation = false;
     }
 
-    const wal_mod = @import("wal.zig");
+    const wal_mod = agdb.wal;
 
     var wal = try wal_mod.WAL.init(alloc, "/tmp/dst_wal_sim.wal", null);
     defer wal.deinit();
@@ -262,13 +262,16 @@ test "dst wal sim backend transaction lifecycle" {
     try testing.expectEqual(wal_mod.WAL_MAGIC, wal.header.magic);
 
     var tx = try wal.beginTransaction();
+    defer wal.endTransaction(&tx) catch |err| {
+        std.log.err("wal transaction end failed: {s}", .{@errorName(err)});
+    };
     try wal.appendRecord(&tx, .write, 4096, 128);
     try wal.commitTransaction(&tx);
     try testing.expect(tx.state == .committed);
 
-    const records = try wal.getRecords(wal_mod.WALHeader.init(0).tail_offset, 16);
+    var records = try wal.getRecords(wal_mod.WALHeader.init(0).tail_offset, 16);
     defer records.deinit();
-    _ = records;
+    try testing.expect(records.items.len >= 1);
 }
 
 test "dst pheap sim backend alloc read write" {
@@ -282,7 +285,7 @@ test "dst pheap sim backend alloc read write" {
         tsc.is_simulation = false;
     }
 
-    const pheap_mod = @import("pheap.zig");
+    const pheap_mod = agdb.pheap;
 
     const heap = try pheap_mod.PersistentHeap.init(alloc, "/tmp/dst_pheap_sim.dat", 1024 * 1024, null);
     defer heap.deinit() catch {};
@@ -290,11 +293,15 @@ test "dst pheap sim backend alloc read write" {
     try testing.expect(heap.vfs.kind == .sim);
     try testing.expect(heap.pool_uuid != 0);
 
+    try heap.beginTransaction();
     const ptr = try heap.allocate({}, 64, 8);
+    try heap.endTransaction();
     try testing.expect(!ptr.isNull());
 
     const data = "DST-PHEAP-SIM-TEST";
+    try heap.beginTransaction();
     try heap.write(ptr.offset, data);
+    try heap.endTransaction();
 
     var buf: [18]u8 = undefined;
     try heap.read(ptr.offset, &buf);
@@ -312,7 +319,7 @@ test "dst sim torn write fault recovery" {
         tsc.is_simulation = false;
     }
 
-    const pheap_mod = @import("pheap.zig");
+    const pheap_mod = agdb.pheap;
 
     const heap = try pheap_mod.PersistentHeap.init(alloc, "/tmp/dst_torn.dat", 1024 * 1024, null);
     defer heap.deinit() catch {};
@@ -355,9 +362,9 @@ test "dst concurrent stm isolation" {
         tsc.is_simulation = false;
     }
 
-    const pheap_mod = @import("pheap.zig");
-    const wal_mod = @import("wal.zig");
-    const tx_mod = @import("transaction.zig");
+    const pheap_mod = agdb.pheap;
+    const wal_mod = agdb.wal;
+    const tx_mod = agdb.transaction;
 
     const heap = try pheap_mod.PersistentHeap.init(alloc, "/tmp/dst_stm_iso.dat", 2 * 1024 * 1024, null);
     defer heap.deinit() catch {};

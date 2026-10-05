@@ -89,7 +89,7 @@ pub const HeapRepair = struct {
     }
 
     fn repairHeader(self: *HeapRepair) !void {
-        const hdr = self.heap.header;
+        const hdr = self.heap.heapHeaderMut();
 
         const computed_checksum = hdr.computeChecksum();
         if (hdr.checksum != computed_checksum) {

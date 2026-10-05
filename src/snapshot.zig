@@ -274,7 +274,7 @@ pub const SnapshotManager = struct {
 
         const snapshot_id = self.next_snapshot_id.fetchAdd(1, .monotonic);
 
-        const root = self.heap.getRoot();
+        const root = try self.heap.getRoot();
         const root_ptr = root orelse pointer.PersistentPtr.NULL;
 
         var snap_header = SnapshotHeader.init(snapshot_id, self.heap.getSize(), root_ptr);

@@ -202,7 +202,7 @@ pub const ObjectHeader = extern struct {
     ref_count: u32,
     schema_id: u32,
     checksum: u32,
-    reserved: u32,
+    payload_checksum: u32,
 
     pub const OBJECT_MAGIC: u32 = 0xDEADBEEF;
     pub const FLAG_FREED: u32 = 0x01;
@@ -217,7 +217,7 @@ pub const ObjectHeader = extern struct {
             .ref_count = 1,
             .schema_id = schema_id,
             .checksum = 0,
-            .reserved = 0,
+            .payload_checksum = 0,
         };
         obj.checksum = obj.computeChecksum();
         return obj;
@@ -361,6 +361,12 @@ pub const FreeListNode = extern struct {
         }
     }
 };
+
+pub fn freeListNodeValid(node: *const FreeListNode) bool {
+    if (node.magic != FreeListNode.NODE_MAGIC) return false;
+    if (node.size < MIN_BLOCK_SIZE) return false;
+    return true;
+}
 
 pub fn freeListNodeAt(base_addr: [*]u8, offset: u64) *FreeListNode {
     return @ptrCast(@alignCast(base_addr + offset));

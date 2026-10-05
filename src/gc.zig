@@ -124,6 +124,12 @@ pub const RCBatchOp = struct {
     offset: u64,
 };
 
+pub fn objectHeaderOffset(payload_offset: u64) !u64 {
+    const oh_size: u64 = @intCast(@sizeOf(header.ObjectHeader));
+    if (payload_offset < oh_size) return error.InvalidPointer;
+    return payload_offset - oh_size;
+}
+
 pub const RefCountGC = struct {
     allocator: std.mem.Allocator,
     alloc: *allocator_mod.PersistentAllocator,
@@ -195,7 +201,8 @@ pub const RefCountGC = struct {
         defer self.lock.unlock();
 
         const base_addr = self.heap.getBaseAddress();
-        const obj_header: *header.ObjectHeader = @ptrCast(@alignCast(base_addr + ptr.offset));
+        const hdr_off = try objectHeaderOffset(ptr.offset);
+        const obj_header: *header.ObjectHeader = @ptrCast(@alignCast(base_addr + hdr_off));
 
         if (obj_header.isFreed()) {
             return error.ObjectAlreadyFreed;
@@ -210,8 +217,8 @@ pub const RefCountGC = struct {
         obj_header.ref_count +|= 1;
         obj_header.checksum = obj_header.computeChecksum();
 
-        try self.wal.appendRecord(&tx, .ref_count_inc, ptr.offset, old_count);
-        try self.heap.flushRange(ptr.offset + @sizeOf(header.ObjectHeader));
+        try self.wal.appendRecord(&tx, .ref_count_inc, hdr_off, old_count);
+        try self.heap.flushRangeAt(hdr_off, @sizeOf(header.ObjectHeader));
         try self.wal.commitTransaction(&tx);
     }
 
@@ -228,7 +235,8 @@ pub const RefCountGC = struct {
         if (ptr.isNull()) return;
 
         const base_addr = self.heap.getBaseAddress();
-        const obj_header: *header.ObjectHeader = @ptrCast(@alignCast(base_addr + ptr.offset));
+        const hdr_off = try objectHeaderOffset(ptr.offset);
+        const obj_header: *header.ObjectHeader = @ptrCast(@alignCast(base_addr + hdr_off));
 
         if (obj_header.isFreed()) {
             return;
@@ -247,8 +255,8 @@ pub const RefCountGC = struct {
         obj_header.ref_count -= 1;
         obj_header.checksum = obj_header.computeChecksum();
 
-        try self.wal.appendRecord(&tx, .ref_count_dec, ptr.offset, old_count);
-        try self.heap.flushRange(ptr.offset + @sizeOf(header.ObjectHeader));
+        try self.wal.appendRecord(&tx, .ref_count_dec, hdr_off, old_count);
+        try self.heap.flushRangeAt(hdr_off, @sizeOf(header.ObjectHeader));
 
         if (obj_header.ref_count == 0) {
             try self.freeObjectGraph(&tx, ptr, 0);
@@ -261,7 +269,8 @@ pub const RefCountGC = struct {
         if (ptr.isNull()) return 0;
 
         const base_addr = self.heap.getBaseAddress();
-        const obj_header: *header.ObjectHeader = @ptrCast(@alignCast(base_addr + ptr.offset));
+        const hdr_off = try objectHeaderOffset(ptr.offset);
+        const obj_header: *header.ObjectHeader = @ptrCast(@alignCast(base_addr + hdr_off));
 
         try obj_header.validate();
 
@@ -284,7 +293,8 @@ pub const RefCountGC = struct {
         try self.wal.appendRecord(tx, .gc_sweep, ptr.offset, @sizeOf(GCOperationDescriptor));
 
         const base_addr = self.heap.getBaseAddress();
-        const obj_header: *header.ObjectHeader = @ptrCast(@alignCast(base_addr + ptr.offset));
+        const hdr_off = try objectHeaderOffset(ptr.offset);
+        const obj_header: *header.ObjectHeader = @ptrCast(@alignCast(base_addr + hdr_off));
         const obj_size = obj_header.size;
 
         self.stats.objects_freed += 1;

@@ -1,167 +1,267 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SERVER="ubuntu@91.134.72.253"
-SCRIPT_DIR_EARLY="$(cd "$(dirname "$0")" && pwd)"
-# Prefer project-local key, then env var path, then default
-if [ -f "${SCRIPT_DIR_EARLY}/.deploy_key" ]; then
-  SSH_KEY="${SCRIPT_DIR_EARLY}/.deploy_key"
-else
-  SSH_KEY="${OVH_SSH_KEY:-$HOME/.ssh/id_ed25519}"
-fi
-DEPLOY_DIR="/opt/agdb"
-REGISTRY_PATH="/var/lib/agdb/registry.agdb"
-DATA_ROOT="/var/lib/agdb/tenants"
-RUNNER_PATH="/usr/lib/agdb/sandbox_runner"
-CLOUD_PORT="7070"
-ZIG_VERSION="0.14.0"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ZIG_DIR="/tmp/zig-linux-x86_64-${ZIG_VERSION}"
-ZIG="${ZIG_DIR}/zig"
 
-# Prefer local project ./zig if available
-if [ -f "${SCRIPT_DIR}/zig" ]; then
-  ZIG="${SCRIPT_DIR}/zig"
-  ZIG_DIR="$(dirname "$ZIG")"
-  echo "==> Using project-local Zig: $ZIG"
-else
-  echo "==> Checking Zig ${ZIG_VERSION}..."
-  if [ ! -f "$ZIG" ]; then
-    echo "    Downloading Zig ${ZIG_VERSION}..."
-    curl -sL "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar.xz" \
-      -o "/tmp/zig-${ZIG_VERSION}.tar.xz"
-    tar -xf "/tmp/zig-${ZIG_VERSION}.tar.xz" -C /tmp/
-    echo "    Zig ${ZIG_VERSION} ready."
-  fi
-  echo "==> Using Zig: $ZIG"
+if [ -f "${SCRIPT_DIR}/.env" ]; then
+  set -a
+  . "${SCRIPT_DIR}/.env"
+  set +a
 fi
-export PATH="${ZIG_DIR}:$PATH"
 
-echo "==> Syncing frontend..."
-cp index.html src/cloud/index.html
+require_env() {
+  local name="$1"
+  if [ -z "${!name:-}" ]; then
+    echo "error: required environment variable ${name} is not set" >&2
+    echo "define it in the environment or in ${SCRIPT_DIR}/.env (see .env.example)" >&2
+    exit 2
+  fi
+}
 
-echo "==> Building agdb-cloud for x86_64-linux-musl (static)..."
-"$ZIG" build \
+require_env AGDB_DEPLOY_HOST
+require_env AGDB_DEPLOY_USER
+
+DEPLOY_HOST="${AGDB_DEPLOY_HOST}"
+DEPLOY_USER="${AGDB_DEPLOY_USER}"
+SERVER="${DEPLOY_USER}@${DEPLOY_HOST}"
+SSH_KEY="${AGDB_DEPLOY_SSH_KEY:-${HOME}/.ssh/id_ed25519}"
+SSH_PORT="${AGDB_DEPLOY_SSH_PORT:-22}"
+DEPLOY_DIR="${AGDB_DEPLOY_DIR:-/opt/agdb}"
+REGISTRY_PATH="${AGDB_REGISTRY_PATH:-/var/lib/agdb/registry.agdb}"
+DATA_ROOT="${AGDB_DATA_ROOT:-/var/lib/agdb/tenants}"
+RUNNER_PATH="${AGDB_RUNNER_PATH:-/usr/lib/agdb/sandbox_runner}"
+CLOUD_PORT="${AGDB_CLOUD_PORT:-7070}"
+SERVICE_USER="${AGDB_SERVICE_USER:-agdb}"
+SHUTDOWN_USER="${AGDB_SHUTDOWN_USER:-agdb-shutdown}"
+ZIG_VERSION="${AGDB_ZIG_VERSION:-0.14.1}"
+RELEASE_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+
+if [ ! -f "${SSH_KEY}" ]; then
+  echo "error: ssh key ${SSH_KEY} not found" >&2
+  exit 2
+fi
+
+SSH=(ssh -i "${SSH_KEY}" -p "${SSH_PORT}" -o StrictHostKeyChecking=accept-new -o BatchMode=yes)
+SCP=(scp -i "${SSH_KEY}" -P "${SSH_PORT}" -o StrictHostKeyChecking=accept-new -o BatchMode=yes)
+
+if [ -x "${SCRIPT_DIR}/zig" ]; then
+  ZIG="${SCRIPT_DIR}/zig"
+elif command -v zig >/dev/null 2>&1; then
+  ZIG="$(command -v zig)"
+else
+  echo "error: zig ${ZIG_VERSION} not found; install it or place an executable named zig in ${SCRIPT_DIR}" >&2
+  exit 2
+fi
+
+ACTUAL_ZIG_VERSION="$("${ZIG}" version)"
+if [ "${ACTUAL_ZIG_VERSION}" != "${ZIG_VERSION}" ]; then
+  echo "error: zig version mismatch: found ${ACTUAL_ZIG_VERSION}, required ${ZIG_VERSION}" >&2
+  exit 2
+fi
+
+echo "==> running test suite"
+"${ZIG}" build test
+
+echo "==> building release artifacts"
+"${ZIG}" build \
   -Dtarget=x86_64-linux-musl \
   -Doptimize=ReleaseSafe \
   "-DAGDB_REGISTRY_PATH=${REGISTRY_PATH}" \
   "-DAGDB_DATA_ROOT=${DATA_ROOT}" \
   "-Dsandbox_runner_path=${RUNNER_PATH}"
 
-echo "==> Binaries built:"
-ls -lh zig-out/bin/agdb-cloud zig-out/bin/agdb-autoshutdown zig-out/usr/lib/agdb/sandbox_runner
-
-echo "==> Preparing server directories..."
-ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "$SERVER" "
-  sudo mkdir -p ${DEPLOY_DIR}/bin
-  sudo mkdir -p $(dirname ${REGISTRY_PATH})
-  sudo mkdir -p ${DATA_ROOT}
-  sudo mkdir -p $(dirname ${RUNNER_PATH})
-  sudo chown -R ubuntu:ubuntu ${DEPLOY_DIR} $(dirname ${REGISTRY_PATH}) ${DATA_ROOT} $(dirname ${RUNNER_PATH}) || true
-  sudo mkdir -p /sys/fs/cgroup/agdb
-  sudo chown ubuntu:ubuntu /sys/fs/cgroup/agdb
-  sudo sh -c 'echo \"+memory +cpu +pids\" > /sys/fs/cgroup/cgroup.subtree_control' 2>/dev/null || true
-  sudo sh -c 'echo \"+memory +cpu +pids\" > /sys/fs/cgroup/agdb/cgroup.subtree_control' 2>/dev/null || true
-"
-
-echo "==> Copying binaries..."
-ssh -i "$SSH_KEY" "$SERVER" "sudo systemctl stop agdb-cloud agdb-autoshutdown 2>/dev/null || true"
-
-scp -i "$SSH_KEY" zig-out/bin/agdb-cloud "${SERVER}:${DEPLOY_DIR}/bin/agdb-cloud"
-ssh -i "$SSH_KEY" "$SERVER" "sudo chmod +x ${DEPLOY_DIR}/bin/agdb-cloud"
-
-scp -i "$SSH_KEY" zig-out/bin/agdb-autoshutdown "${SERVER}:${DEPLOY_DIR}/bin/agdb-autoshutdown"
-ssh -i "$SSH_KEY" "$SERVER" "sudo chmod +x ${DEPLOY_DIR}/bin/agdb-autoshutdown"
-
-scp -i "$SSH_KEY" zig-out/usr/lib/agdb/sandbox_runner "${SERVER}:/tmp/sandbox_runner"
-ssh -i "$SSH_KEY" "$SERVER" "sudo mv /tmp/sandbox_runner ${RUNNER_PATH} && sudo chmod +x ${RUNNER_PATH}"
-
-echo "==> Installing nginx..."
-ssh -i "$SSH_KEY" "$SERVER" "
-  if ! command -v nginx &>/dev/null; then
-    sudo apt-get update -qq && sudo apt-get install -y nginx
+for artifact in \
+  "zig-out/bin/agdb-cloud" \
+  "zig-out/bin/agdb-autoshutdown" \
+  "zig-out${RUNNER_PATH}"; do
+  if [ ! -f "${artifact}" ]; then
+    echo "error: expected build artifact ${artifact} is missing" >&2
+    exit 1
   fi
-"
+done
 
-echo "==> Deploying nginx config..."
-scp -i "$SSH_KEY" nginx.conf "${SERVER}:/tmp/agdb-nginx.conf"
-ssh -i "$SSH_KEY" "$SERVER" "
-  sudo mv /tmp/agdb-nginx.conf /etc/nginx/sites-available/agdb
-  sudo ln -sf /etc/nginx/sites-available/agdb /etc/nginx/sites-enabled/agdb
-  sudo rm -f /etc/nginx/sites-enabled/default
-  sudo nginx -t && sudo systemctl reload nginx
-"
+echo "==> artifacts"
+ls -lh zig-out/bin/agdb-cloud zig-out/bin/agdb-autoshutdown "zig-out${RUNNER_PATH}"
 
-echo "==> Installing systemd service..."
-cat > /tmp/agdb-cloud.service <<EOF
+echo "==> preparing remote host ${DEPLOY_HOST}"
+"${SSH[@]}" "${SERVER}" "sudo -n true" >/dev/null
+
+"${SSH[@]}" "${SERVER}" bash -s <<REMOTE_PREPARE
+set -euo pipefail
+sudo install -d -m 0755 "${DEPLOY_DIR}/bin"
+sudo install -d -m 0755 "${DEPLOY_DIR}/releases/${RELEASE_STAMP}"
+sudo install -d -m 0750 "\$(dirname "${REGISTRY_PATH}")"
+sudo install -d -m 0750 "${DATA_ROOT}"
+sudo install -d -m 0755 "\$(dirname "${RUNNER_PATH}")"
+if ! id -u "${SERVICE_USER}" >/dev/null 2>&1; then
+  sudo useradd --system --home-dir "${DEPLOY_DIR}" --shell /usr/sbin/nologin "${SERVICE_USER}"
+fi
+if ! id -u "${SHUTDOWN_USER}" >/dev/null 2>&1; then
+  sudo useradd --system --home-dir "${DEPLOY_DIR}" --shell /usr/sbin/nologin "${SHUTDOWN_USER}"
+fi
+sudo chown -R "${SERVICE_USER}:${SERVICE_USER}" "${DEPLOY_DIR}" "\$(dirname "${REGISTRY_PATH}")" "${DATA_ROOT}"
+sudo install -d -m 0755 /sys/fs/cgroup/agdb || true
+sudo chown "${SERVICE_USER}:${SERVICE_USER}" /sys/fs/cgroup/agdb || true
+REMOTE_PREPARE
+
+echo "==> uploading binaries"
+"${SCP[@]}" zig-out/bin/agdb-cloud "${SERVER}:/tmp/agdb-cloud.${RELEASE_STAMP}"
+"${SCP[@]}" zig-out/bin/agdb-autoshutdown "${SERVER}:/tmp/agdb-autoshutdown.${RELEASE_STAMP}"
+"${SCP[@]}" "zig-out${RUNNER_PATH}" "${SERVER}:/tmp/sandbox_runner.${RELEASE_STAMP}"
+"${SCP[@]}" nginx.conf "${SERVER}:/tmp/agdb-nginx.conf.${RELEASE_STAMP}"
+
+echo "==> installing release ${RELEASE_STAMP}"
+"${SSH[@]}" "${SERVER}" bash -s <<REMOTE_INSTALL
+set -euo pipefail
+sudo install -m 0755 "/tmp/agdb-cloud.${RELEASE_STAMP}" "${DEPLOY_DIR}/releases/${RELEASE_STAMP}/agdb-cloud"
+sudo install -m 0755 "/tmp/agdb-autoshutdown.${RELEASE_STAMP}" "${DEPLOY_DIR}/releases/${RELEASE_STAMP}/agdb-autoshutdown"
+sudo install -m 0755 "/tmp/sandbox_runner.${RELEASE_STAMP}" "${DEPLOY_DIR}/releases/${RELEASE_STAMP}/sandbox_runner"
+rm -f "/tmp/agdb-cloud.${RELEASE_STAMP}" "/tmp/agdb-autoshutdown.${RELEASE_STAMP}" "/tmp/sandbox_runner.${RELEASE_STAMP}"
+
+if [ -f "${DEPLOY_DIR}/bin/agdb-cloud" ]; then
+  sudo cp -a "${DEPLOY_DIR}/bin/agdb-cloud" "${DEPLOY_DIR}/bin/agdb-cloud.previous"
+fi
+if [ -f "${DEPLOY_DIR}/bin/agdb-autoshutdown" ]; then
+  sudo cp -a "${DEPLOY_DIR}/bin/agdb-autoshutdown" "${DEPLOY_DIR}/bin/agdb-autoshutdown.previous"
+fi
+if [ -f "${RUNNER_PATH}" ]; then
+  sudo cp -a "${RUNNER_PATH}" "${RUNNER_PATH}.previous"
+fi
+
+sudo systemctl stop agdb-autoshutdown 2>/dev/null || true
+sudo systemctl stop agdb-cloud 2>/dev/null || true
+
+sudo install -m 0755 "${DEPLOY_DIR}/releases/${RELEASE_STAMP}/agdb-cloud" "${DEPLOY_DIR}/bin/agdb-cloud"
+sudo install -m 0755 "${DEPLOY_DIR}/releases/${RELEASE_STAMP}/agdb-autoshutdown" "${DEPLOY_DIR}/bin/agdb-autoshutdown"
+sudo install -m 0755 "${DEPLOY_DIR}/releases/${RELEASE_STAMP}/sandbox_runner" "${RUNNER_PATH}"
+
+if ! command -v nginx >/dev/null 2>&1; then
+  sudo apt-get update -qq
+  sudo apt-get install -y nginx
+fi
+sudo mv "/tmp/agdb-nginx.conf.${RELEASE_STAMP}" /etc/nginx/sites-available/agdb
+sudo ln -sf /etc/nginx/sites-available/agdb /etc/nginx/sites-enabled/agdb
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl reload nginx
+REMOTE_INSTALL
+
+echo "==> writing systemd units"
+CLOUD_UNIT="$(mktemp)"
+SHUTDOWN_UNIT="$(mktemp)"
+trap 'rm -f "${CLOUD_UNIT}" "${SHUTDOWN_UNIT}"' EXIT
+
+cat > "${CLOUD_UNIT}" <<UNIT
 [Unit]
-Description=agdb Cloud Server
-After=network.target
+Description=agdb cloud server
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=ubuntu
+User=${SERVICE_USER}
+Group=${SERVICE_USER}
 ExecStart=${DEPLOY_DIR}/bin/agdb-cloud
 Restart=on-failure
 RestartSec=5
 Environment=AGDB_CLOUD_PORT=${CLOUD_PORT}
 Environment=AGDB_REGISTRY_PATH=${REGISTRY_PATH}
 Environment=AGDB_DATA_ROOT=${DATA_ROOT}
+EnvironmentFile=-${DEPLOY_DIR}/agdb-cloud.env
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=agdb-cloud
 AmbientCapabilities=CAP_SYS_ADMIN CAP_NET_ADMIN CAP_SETUID CAP_SETGID CAP_CHOWN CAP_SYS_CHROOT
 CapabilityBoundingSet=CAP_SYS_ADMIN CAP_NET_ADMIN CAP_SETUID CAP_SETGID CAP_CHOWN CAP_SYS_CHROOT
-NoNewPrivileges=false
+ProtectHome=yes
+PrivateTmp=yes
+ProtectControlGroups=no
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+LimitNOFILE=65536
+TasksMax=4096
 
 [Install]
 WantedBy=multi-user.target
-EOF
+UNIT
 
-scp -i "$SSH_KEY" /tmp/agdb-cloud.service "${SERVER}:/tmp/agdb-cloud.service"
-
-cat > /tmp/agdb-autoshutdown.service <<EOF
+cat > "${SHUTDOWN_UNIT}" <<UNIT
 [Unit]
-Description=agdb Auto-Shutdown (idle monitor)
+Description=agdb idle shutdown supervisor
 After=agdb-cloud.service
+Requires=agdb-cloud.service
 
 [Service]
 Type=simple
-User=root
+User=${SHUTDOWN_USER}
+Group=${SHUTDOWN_USER}
 ExecStart=${DEPLOY_DIR}/bin/agdb-autoshutdown
 Restart=on-failure
 RestartSec=10
+EnvironmentFile=-${DEPLOY_DIR}/agdb-autoshutdown.env
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=agdb-autoshutdown
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryMax=128M
+TasksMax=16
 
 [Install]
 WantedBy=multi-user.target
-EOF
+UNIT
 
-scp -i "$SSH_KEY" /tmp/agdb-autoshutdown.service "${SERVER}:/tmp/agdb-autoshutdown.service"
-ssh -i "$SSH_KEY" "$SERVER" "
-  sudo mv /tmp/agdb-cloud.service /etc/systemd/system/agdb-cloud.service
-  sudo mv /tmp/agdb-autoshutdown.service /etc/systemd/system/agdb-autoshutdown.service
-  sudo systemctl daemon-reload
-  sudo systemctl enable agdb-cloud agdb-autoshutdown
-  sudo systemctl restart agdb-cloud agdb-autoshutdown
-  sleep 2
-  sudo systemctl status agdb-cloud --no-pager | head -10
-  sudo systemctl status agdb-autoshutdown --no-pager | head -10
-"
+"${SCP[@]}" "${CLOUD_UNIT}" "${SERVER}:/tmp/agdb-cloud.service.${RELEASE_STAMP}"
+"${SCP[@]}" "${SHUTDOWN_UNIT}" "${SERVER}:/tmp/agdb-autoshutdown.service.${RELEASE_STAMP}"
 
-echo ""
-echo "==> Verifying health endpoint..."
-sleep 2
-ssh -i "$SSH_KEY" "$SERVER" "curl -sf http://localhost:${CLOUD_PORT}/v1/health || echo 'health check failed'"
+"${SSH[@]}" "${SERVER}" bash -s <<REMOTE_ACTIVATE
+set -euo pipefail
+sudo install -m 0644 "/tmp/agdb-cloud.service.${RELEASE_STAMP}" /etc/systemd/system/agdb-cloud.service
+sudo install -m 0644 "/tmp/agdb-autoshutdown.service.${RELEASE_STAMP}" /etc/systemd/system/agdb-autoshutdown.service
+rm -f "/tmp/agdb-cloud.service.${RELEASE_STAMP}" "/tmp/agdb-autoshutdown.service.${RELEASE_STAMP}"
+sudo systemctl daemon-reload
+sudo systemctl enable agdb-cloud agdb-autoshutdown
+sudo systemctl restart agdb-cloud
+sudo systemctl restart agdb-autoshutdown
+REMOTE_ACTIVATE
 
-echo ""
-echo "==============================="
-echo "  Deploy complete!"
-echo "  Server: http://91.134.72.253"
-echo "  API:    http://91.134.72.253/v1/health"
-echo "==============================="
-echo ""
-echo "  To enable HTTPS (after DNS is configured):"
-echo "  ssh -i ${SSH_KEY} ${SERVER} 'sudo apt install certbot python3-certbot-nginx && sudo certbot --nginx -d your-domain.com'"
+echo "==> verifying health endpoint"
+HEALTH_OK=0
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  if "${SSH[@]}" "${SERVER}" "curl -sf --max-time 5 http://127.0.0.1:${CLOUD_PORT}/v1/health >/dev/null"; then
+    HEALTH_OK=1
+    break
+  fi
+  sleep 3
+done
+
+if [ "${HEALTH_OK}" -ne 1 ]; then
+  echo "error: health check failed, rolling back to previous release" >&2
+  "${SSH[@]}" "${SERVER}" bash -s <<REMOTE_ROLLBACK
+set -euo pipefail
+if [ -f "${DEPLOY_DIR}/bin/agdb-cloud.previous" ]; then
+  sudo install -m 0755 "${DEPLOY_DIR}/bin/agdb-cloud.previous" "${DEPLOY_DIR}/bin/agdb-cloud"
+fi
+if [ -f "${DEPLOY_DIR}/bin/agdb-autoshutdown.previous" ]; then
+  sudo install -m 0755 "${DEPLOY_DIR}/bin/agdb-autoshutdown.previous" "${DEPLOY_DIR}/bin/agdb-autoshutdown"
+fi
+if [ -f "${RUNNER_PATH}.previous" ]; then
+  sudo install -m 0755 "${RUNNER_PATH}.previous" "${RUNNER_PATH}"
+fi
+sudo systemctl restart agdb-cloud
+sudo systemctl restart agdb-autoshutdown
+REMOTE_ROLLBACK
+  exit 1
+fi
+
+echo "==> deploy ${RELEASE_STAMP} complete on ${DEPLOY_HOST}"
+echo "==> health endpoint: http://${DEPLOY_HOST}/v1/health"

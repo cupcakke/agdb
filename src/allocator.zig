@@ -207,15 +207,17 @@ pub const PersistentAllocator = struct {
         self.lock.lock();
         defer self.lock.unlock();
 
-        if (offset < header.HEADER_SIZE + @sizeOf(AllocatorMetadata)) {
+        const oh_size: u64 = @intCast(@sizeOf(header.ObjectHeader));
+        if (offset < header.HEADER_SIZE + @sizeOf(AllocatorMetadata) + oh_size) {
             return error.InvalidUndo;
         }
+        const hdr_off = offset - oh_size;
 
-        const obj_header: *header.ObjectHeader = @ptrCast(@alignCast(self.base_addr + offset));
+        const obj_header: *header.ObjectHeader = @ptrCast(@alignCast(self.base_addr + hdr_off));
         if (!obj_header.isFreed()) {
             obj_header.setFreed(true);
             obj_header.checksum = obj_header.computeChecksum();
-            try self.heap.flushRange(offset + @sizeOf(header.ObjectHeader));
+            try self.heap.flushRangeAt(hdr_off, @sizeOf(header.ObjectHeader));
         }
 
         if (self.metadata.allocation_count > 0) {
@@ -266,13 +268,13 @@ pub const PersistentAllocator = struct {
         self.metadata.allocation_count += 1;
         self.metadata.updateChecksum();
 
-        try self.heap.flushRange(offset + @sizeOf(header.ObjectHeader));
+        try self.heap.flushRangeAt(offset, @sizeOf(header.ObjectHeader));
         try self.wal.appendRecord(&tx, .allocate, offset, actual_size);
         try self.wal.commitTransaction(&tx);
 
         return pointer.PersistentPtr{
             .pool_uuid = self.heap.getPoolUUID(),
-            .offset = offset,
+            .offset = offset + @sizeOf(header.ObjectHeader),
         };
     }
 
@@ -283,10 +285,11 @@ pub const PersistentAllocator = struct {
             return error.UUIDMismatch;
         }
 
-        const offset = ptr.offset;
-        if (offset < header.HEADER_SIZE + @sizeOf(AllocatorMetadata)) {
+        const oh_size: u64 = @intCast(@sizeOf(header.ObjectHeader));
+        if (ptr.offset < header.HEADER_SIZE + @sizeOf(AllocatorMetadata) + oh_size) {
             return error.InvalidFree;
         }
+        const offset = ptr.offset - oh_size;
 
         const obj_header: *header.ObjectHeader = @ptrCast(@alignCast(self.base_addr + offset));
         try obj_header.validate();
@@ -344,7 +347,9 @@ pub const PersistentAllocator = struct {
         self.lock.lock();
         defer self.lock.unlock();
 
-        const offset = ptr.offset;
+        const oh_size: u64 = @intCast(@sizeOf(header.ObjectHeader));
+        if (ptr.offset < oh_size) return error.InvalidPointer;
+        const offset = ptr.offset - oh_size;
         const obj_header: *header.ObjectHeader = @ptrCast(@alignCast(self.base_addr + offset));
         try obj_header.validate();
 
@@ -357,8 +362,8 @@ pub const PersistentAllocator = struct {
         const new_ptr = try self.allocLocked(new_size, alignment);
         errdefer self.freeLocked(new_ptr) catch {};
 
-        const old_data_start = offset + @sizeOf(header.ObjectHeader);
-        const new_data_start = new_ptr.offset + @sizeOf(header.ObjectHeader);
+        const old_data_start = ptr.offset;
+        const new_data_start = new_ptr.offset;
 
         const copy_size = @min(old_size, new_size);
         const src = self.base_addr + old_data_start;

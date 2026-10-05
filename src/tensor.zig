@@ -913,8 +913,8 @@ pub const Tensor = struct {
                                 const limit = k_dim - k_dim % vector_width;
                                 var accumulator: Vec8 = @splat(0.0);
                                 while (kk < limit) : (kk += vector_width) {
-                                    const av: Vec8 = a_ptr.data[i * a_ptr.shape.strides[0] + kk..][0..vector_width].*;
-                                    const bv: Vec8 = bt_ptr.data[j * bt_ptr.shape.strides[0] + kk..][0..vector_width].*;
+                                    const av: Vec8 = a_ptr.data[i * a_ptr.shape.strides[0] + kk ..][0..vector_width].*;
+                                    const bv: Vec8 = bt_ptr.data[j * bt_ptr.shape.strides[0] + kk ..][0..vector_width].*;
                                     accumulator += av * bv;
                                 }
                                 sum_value += @reduce(.Add, accumulator);

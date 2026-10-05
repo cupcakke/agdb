@@ -290,7 +290,7 @@ pub const PMutex = extern struct {
 
         const tid = currentThreadIdU64();
         if (self.owner.load(.acquire) == tid and self.state.load(.acquire) != STATE_UNLOCKED) {
-            return error.Deadlock;
+            return false;
         }
 
         if (self.waiters.load(.acquire) != 0) return false;

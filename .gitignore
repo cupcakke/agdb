@@ -1,0 +1,17 @@
+zig-out/
+zig-cache/
+.zig-cache/
+zig
+.env
+.deploy_key
+*.key
+*.pem
+*.p12
+*.agdb
+*.wal
+*.dat
+*.snap
+*.kv
+core
+perf.data
+perf.data.old

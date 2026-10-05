@@ -400,26 +400,26 @@ pub const ResidentObjectTable = struct {
 
 test "persistent ptr operations" {
     const testing = std.testing;
-    
+
     var ptr = PersistentPtr{ .pool_uuid = 12345, .offset = 100 };
     try testing.expect(!ptr.isNull());
     try testing.expect(ptr.isValid());
-    
+
     var null_ptr = PersistentPtr.NULL;
     try testing.expect(null_ptr.isNull());
 }
 
 test "relative ptr" {
     const testing = std.testing;
-    
+
     var buffer: [1024]u8 align(64) = undefined;
     var value: u64 = 42;
-    
+
     const base: [*]const u8 = @ptrCast(&buffer);
     const value_ptr: *u64 = &value;
-    
+
     var rel_ptr = RelativePtr(u64).init(value_ptr, base, 12345);
-    
+
     const resolved = try rel_ptr.resolve(base, 12345);
     try testing.expect(resolved != null);
     try testing.expectEqual(@as(u64, 42), resolved.?.*);
@@ -430,22 +430,22 @@ test "pointer table" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const alloc = gpa.allocator();
-    
+
     var table = try PointerTable.init(alloc, 16);
     defer table.deinit();
-    
+
     var value1: u64 = 100;
     var value2: u64 = 200;
-    
+
     const ptr1 = PersistentPtr{ .pool_uuid = 1, .offset = 100 };
     const ptr2 = PersistentPtr{ .pool_uuid = 1, .offset = 200 };
-    
+
     try table.insert(ptr1, &value1);
     try table.insert(ptr2, &value2);
-    
+
     const found1 = table.get(ptr1);
     const found2 = table.get(ptr2);
-    
+
     try testing.expect(found1 != null);
     try testing.expect(found2 != null);
     try testing.expectEqual(@as(u64, 100), @as(*u64, @ptrCast(@alignCast(found1.?))).*);

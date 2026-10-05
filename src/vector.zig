@@ -809,7 +809,7 @@ inline fn manhattanDistance(a: []const f32, b: []const f32) VectorIndexError!f64
     return sum;
 }
 
-pub fn hashEmbed(allocator: std.mem.Allocator, text: []const u8, dim: usize) HashEmbedError![]f32 {
+pub fn featureHashEmbed(allocator: std.mem.Allocator, text: []const u8, dim: usize) HashEmbedError![]f32 {
     try validateDimension(dim);
     if (@sizeOf(usize) > @sizeOf(u64)) {
         if (dim > std.math.maxInt(u64)) return error.InvalidDimension;
@@ -1205,7 +1205,7 @@ test "validation errors" {
     var idx = try VectorIndex.init(testing.allocator, 2, .cosine);
     defer idx.deinit();
 
-    try testing.expectError(error.VectorDimMismatch, idx.upsert(1, &[_]f32{ 1 }));
+    try testing.expectError(error.VectorDimMismatch, idx.upsert(1, &[_]f32{1}));
     try testing.expectError(error.InvalidVector, idx.upsert(1, &[_]f32{ 0, 0 }));
     try testing.expectError(error.InvalidVector, idx.upsert(1, &[_]f32{ std.math.nan(f32), 1 }));
     try testing.expectError(error.InvalidVector, idx.upsert(1, &[_]f32{ std.math.inf(f32), 1 }));
@@ -1272,7 +1272,7 @@ test "serialized output is deterministic after removal history" {
 
 test "hash embed" {
     const testing = std.testing;
-    const emb = try hashEmbed(testing.allocator, "agdb is fast", 64);
+    const emb = try featureHashEmbed(testing.allocator, "agdb is fast", 64);
     defer testing.allocator.free(emb);
 
     try testing.expectEqual(@as(usize, 64), emb.len);
@@ -1293,16 +1293,16 @@ test "hash embed" {
 test "hash embed tokenization and validation" {
     const testing = std.testing;
 
-    const a = try hashEmbed(testing.allocator, "Foo-Bar/Baz", 32);
+    const a = try featureHashEmbed(testing.allocator, "Foo-Bar/Baz", 32);
     defer testing.allocator.free(a);
-    const b = try hashEmbed(testing.allocator, "foo bar baz", 32);
+    const b = try featureHashEmbed(testing.allocator, "foo bar baz", 32);
     defer testing.allocator.free(b);
 
     try testing.expectEqualSlices(f32, a, b);
 
-    try testing.expectError(error.InvalidDimension, hashEmbed(testing.allocator, "x", 0));
-    try testing.expectError(error.EmptyEmbedding, hashEmbed(testing.allocator, " \t\n.,;:!?()[]{}", 16));
-    try testing.expectError(error.InvalidUtf8, hashEmbed(testing.allocator, &[_]u8{ 0xFF }, 16));
+    try testing.expectError(error.InvalidDimension, featureHashEmbed(testing.allocator, "x", 0));
+    try testing.expectError(error.EmptyEmbedding, featureHashEmbed(testing.allocator, " \t\n.,;:!?()[]{}", 16));
+    try testing.expectError(error.InvalidUtf8, featureHashEmbed(testing.allocator, &[_]u8{0xFF}, 16));
 }
 
 fn makeV1Bytes(allocator: std.mem.Allocator, dim: usize, dist: u32, count: usize, duplicate: bool, nonfinite: bool) ![]u8 {
