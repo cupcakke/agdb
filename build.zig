@@ -105,6 +105,9 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(autoshutdown_exe);
 
+    const autoshutdown_tests = b.addTest(.{ .root_module = autoshutdown_mod });
+    const run_autoshutdown_tests = b.addRunArtifact(autoshutdown_tests);
+
     const lib_tests = b.addTest(.{
         .root_module = lib_mod,
     });
@@ -131,6 +134,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_lib_tests.step);
     test_step.dependOn(&run_integration_tests.step);
     test_step.dependOn(&run_wake_tests.step);
+    test_step.dependOn(&run_autoshutdown_tests.step);
 
     const integration_step = b.step("test-integration", "Run integration tests only");
     integration_step.dependOn(&run_integration_tests.step);

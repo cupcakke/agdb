@@ -411,6 +411,35 @@ pub const ProcessTable = struct {
         return null;
     }
 
+    pub fn activeSandboxCount(self: *ProcessTable) usize {
+        self.mu.lock();
+        defer self.mu.unlock();
+        var total: usize = 0;
+        for (self.slots) |maybe_handle| {
+            if (maybe_handle != null) total += 1;
+        }
+        return total;
+    }
+
+    pub fn pendingRequestCount(self: *ProcessTable) usize {
+        self.pending_mutex.lock();
+        defer self.pending_mutex.unlock();
+        return self.pending_requests.count();
+    }
+
+    pub fn lastSandboxActivityNs(self: *ProcessTable) i64 {
+        self.mu.lock();
+        defer self.mu.unlock();
+        var newest: i64 = 0;
+        for (self.slots) |maybe_handle| {
+            if (maybe_handle) |handle| {
+                const activity: i64 = @intCast(handle.last_activity_ns);
+                if (activity > newest) newest = activity;
+            }
+        }
+        return newest;
+    }
+
     pub fn updateActivity(self: *ProcessTable, tenant_id: u64) void {
         self.mu.lock();
         defer self.mu.unlock();

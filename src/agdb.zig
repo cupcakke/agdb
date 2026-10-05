@@ -165,4 +165,6 @@ test {
     std.testing.refAllDecls(cloud.router);
     std.testing.refAllDecls(cloud.ipc);
     std.testing.refAllDecls(cloud.metrics);
+    std.testing.refAllDecls(cloud.wal_transport);
+    std.testing.refAllDecls(cloud.http_server);
 }
