@@ -3,9 +3,9 @@ const builtin = @import("builtin");
 const atomic = std.atomic;
 
 comptime {
-    const minimum_zig_version = std.SemanticVersion{ .major = 0, .minor = 14, .patch = 0 };
+    const minimum_zig_version = std.SemanticVersion{ .major = 0, .minor = 15, .patch = 0 };
     if (builtin.zig_version.order(minimum_zig_version) == .lt) {
-        @compileError("this module requires Zig 0.14.0 or newer");
+        @compileError("this module requires Zig 0.15.0 or newer");
     }
 }
 
@@ -13,6 +13,8 @@ pub const is_x86_64 = builtin.cpu.arch == .x86_64;
 pub const is_aarch64 = builtin.cpu.arch == .aarch64 or builtin.cpu.arch == .aarch64_be;
 pub const is_riscv64 = builtin.cpu.arch == .riscv64;
 pub const has_hardware_counter = is_x86_64 or is_aarch64 or is_riscv64;
+const is_linux = builtin.os.tag == .linux;
+const has_std_instant = @hasDecl(std.time, "Instant");
 
 pub const rdrand_retry_limit: u32 = 10;
 pub const rdseed_retry_limit: u32 = 100;
@@ -20,6 +22,7 @@ pub const rdseed_retry_limit: u32 = 100;
 pub const HwRngError = error{ Unsupported, Unavailable };
 pub const TimerError = error{ CpuMigrated, CounterWentBackward };
 pub const CpuTimerError = TimerError || error{ InvalidRate, OutOfRange };
+pub const ClockError = error{MonotonicClockUnavailable};
 pub const FreqError = TimerError || error{ InvalidSampleDuration, MonotonicClockUnavailable, ZeroElapsed, FrequencyOutOfRange };
 pub const SequenceError = error{Exhausted};
 pub const RangeError = error{InvalidRange};
@@ -50,10 +53,37 @@ const X86Features = struct {
     tsc_hz_from_cpuid: ?u64,
 };
 
+const Once = struct {
+    state: atomic.Value(u8) = atomic.Value(u8).init(0),
+
+    fn call(self: *Once, comptime func: fn () void) void {
+        if (self.state.load(.acquire) == 2) return;
+        if (self.state.cmpxchgStrong(0, 1, .acquire, .acquire) == null) {
+            func();
+            self.state.store(2, .release);
+            return;
+        }
+        while (self.state.load(.acquire) != 2) {
+            std.atomic.spinLoopHint();
+        }
+    }
+};
+
+const KernelTimespec = extern struct {
+    sec: isize,
+    nsec: isize,
+};
+
+const linux_clock_realtime: usize = 0;
+const linux_clock_monotonic: usize = 1;
+const linux_eintr: isize = 4;
+
 var x86_features: X86Features = undefined;
-var x86_features_once = std.once(detectX86Features);
-var monotonic_epoch: std.time.Instant = undefined;
-var monotonic_epoch_once = std.once(initMonotonicEpoch);
+var x86_features_once = Once{};
+var monotonic_epoch_ns: u64 = 0;
+var monotonic_epoch_valid: bool = false;
+var instant_epoch: if (has_std_instant) std.time.Instant else void = undefined;
+var monotonic_epoch_once = Once{};
 var fence_anchor = atomic.Value(u32).init(0);
 
 fn cpuid(leaf: u32, subleaf: u32) CpuidResult {
@@ -111,22 +141,134 @@ fn detectX86Features() void {
 }
 
 fn x86Features() X86Features {
-    x86_features_once.call();
+    x86_features_once.call(detectX86Features);
     return x86_features;
 }
 
+fn linuxSyscallFailed(rc: usize) bool {
+    const signed: isize = @bitCast(rc);
+    return signed < 0 and signed > -4096;
+}
+
+fn linuxSyscallErrno(rc: usize) isize {
+    const signed: isize = @bitCast(rc);
+    return -signed;
+}
+
+fn linuxClockRead(clock_id: usize) ?KernelTimespec {
+    var ts = KernelTimespec{ .sec = 0, .nsec = 0 };
+    const rc = std.os.linux.syscall2(.clock_gettime, clock_id, @intFromPtr(&ts));
+    if (rc != 0) return null;
+    return ts;
+}
+
+fn linuxClockNs(clock_id: usize) ?u64 {
+    const ts = linuxClockRead(clock_id) orelse return null;
+    if (ts.sec < 0 or ts.nsec < 0) return null;
+    const sec: u64 = @intCast(ts.sec);
+    const nsec: u64 = @intCast(ts.nsec);
+    const sec_ns = std.math.mul(u64, sec, std.time.ns_per_s) catch return null;
+    return std.math.add(u64, sec_ns, nsec) catch return null;
+}
+
 fn initMonotonicEpoch() void {
-    monotonic_epoch = std.time.Instant.now() catch @panic("monotonic clock unavailable on this platform");
+    if (comptime is_linux) {
+        if (linuxClockNs(linux_clock_monotonic)) |now| {
+            monotonic_epoch_ns = now;
+            monotonic_epoch_valid = true;
+        } else {
+            monotonic_epoch_valid = false;
+        }
+    } else if (comptime has_std_instant) {
+        if (std.time.Instant.now()) |now| {
+            instant_epoch = now;
+            monotonic_epoch_valid = true;
+        } else |_| {
+            monotonic_epoch_valid = false;
+        }
+    } else {
+        @compileError("no monotonic clock available on this platform");
+    }
+}
+
+pub fn monotonicNanosChecked() ClockError!u64 {
+    monotonic_epoch_once.call(initMonotonicEpoch);
+    if (!monotonic_epoch_valid) return error.MonotonicClockUnavailable;
+    if (comptime is_linux) {
+        const now = linuxClockNs(linux_clock_monotonic) orelse return error.MonotonicClockUnavailable;
+        return now -| monotonic_epoch_ns;
+    } else if (comptime has_std_instant) {
+        const now = std.time.Instant.now() catch return error.MonotonicClockUnavailable;
+        return now.since(instant_epoch);
+    } else {
+        @compileError("no monotonic clock available on this platform");
+    }
 }
 
 pub fn monotonicNanos() u64 {
-    monotonic_epoch_once.call();
-    const now = std.time.Instant.now() catch @panic("monotonic clock unavailable on this platform");
-    return now.since(monotonic_epoch);
+    return monotonicNanosChecked() catch @panic("monotonic clock unavailable on this platform");
 }
 
 pub fn wallClockTimestampUs() i64 {
-    return std.time.microTimestamp();
+    if (comptime is_linux) {
+        const ts = linuxClockRead(linux_clock_realtime) orelse @panic("realtime clock unavailable on this platform");
+        const sec: i64 = @intCast(ts.sec);
+        const nsec: i64 = @intCast(ts.nsec);
+        return sec * std.time.us_per_s + @divTrunc(nsec, std.time.ns_per_us);
+    } else if (comptime @hasDecl(std.time, "microTimestamp")) {
+        return std.time.microTimestamp();
+    } else {
+        @compileError("no realtime clock available on this platform");
+    }
+}
+
+pub fn sleepNanos(ns: u64) void {
+    if (comptime is_linux) {
+        var req = KernelTimespec{
+            .sec = @intCast(ns / std.time.ns_per_s),
+            .nsec = @intCast(ns % std.time.ns_per_s),
+        };
+        var rem = KernelTimespec{ .sec = 0, .nsec = 0 };
+        while (true) {
+            const rc = std.os.linux.syscall2(.nanosleep, @intFromPtr(&req), @intFromPtr(&rem));
+            if (!linuxSyscallFailed(rc)) return;
+            if (linuxSyscallErrno(rc) != linux_eintr) return;
+            req = rem;
+        }
+    } else if (comptime @hasDecl(std.Thread, "sleep")) {
+        std.Thread.sleep(ns);
+    } else {
+        const start = monotonicNanos();
+        while (monotonicNanos() -| start < ns) {
+            std.atomic.spinLoopHint();
+        }
+    }
+}
+
+fn osRandomBytes(out: []u8) void {
+    if (comptime is_linux) {
+        var i: usize = 0;
+        while (i < out.len) {
+            const rc = std.os.linux.syscall3(.getrandom, @intFromPtr(out[i..].ptr), out.len - i, 0);
+            if (linuxSyscallFailed(rc)) {
+                if (linuxSyscallErrno(rc) == linux_eintr) continue;
+                @panic("getrandom failed");
+            }
+            i += rc;
+        }
+    } else if (comptime @hasDecl(std.crypto, "random")) {
+        std.crypto.random.bytes(out);
+    } else if (comptime builtin.link_libc and @hasDecl(std.c, "arc4random_buf")) {
+        std.c.arc4random_buf(out.ptr, out.len);
+    } else {
+        @compileError("no operating system CSPRNG available on this platform");
+    }
+}
+
+fn osRandom64() u64 {
+    var buf: [8]u8 = undefined;
+    osRandomBytes(&buf);
+    return std.mem.readInt(u64, &buf, .little);
 }
 
 pub fn rdtscpSupported() bool {
@@ -181,7 +323,7 @@ pub fn nominalCounterFreqHz() ?u64 {
 }
 
 pub fn currentCpuId() ?u32 {
-    if (comptime builtin.os.tag == .linux) {
+    if (comptime is_linux) {
         var cpu: u32 = 0;
         var node: u32 = 0;
         const rc = std.os.linux.syscall3(.getcpu, @intFromPtr(&cpu), @intFromPtr(&node), 0);
@@ -207,24 +349,21 @@ pub fn rdtsc() u64 {
             : [lo] "={eax}" (lo),
               [hi] "={edx}" (hi),
             :
-            : "memory"
-        );
+            : .{ .memory = true });
         return (@as(u64, hi) << 32) | @as(u64, lo);
     } else if (comptime is_aarch64) {
         var value: u64 = undefined;
         asm volatile ("mrs %[value], cntvct_el0"
             : [value] "=r" (value),
             :
-            : "memory"
-        );
+            : .{ .memory = true });
         return value;
     } else if (comptime is_riscv64) {
         var value: u64 = undefined;
         asm volatile ("rdtime %[value]"
             : [value] "=r" (value),
             :
-            : "memory"
-        );
+            : .{ .memory = true });
         return value;
     } else {
         return monotonicNanos();
@@ -242,8 +381,7 @@ pub fn rdtscp() TscReading {
                   [hi] "={edx}" (hi),
                   [aux] "={ecx}" (aux),
                 :
-                : "memory"
-            );
+                : .{ .memory = true });
             return .{
                 .tsc = (@as(u64, hi) << 32) | @as(u64, lo),
                 .cpu_id = cpuIdFromTscAux(aux) orelse currentCpuId(),
@@ -294,11 +432,11 @@ pub fn elapsedTicks(start: TscStamp, end: TscStamp) TimerError!u64 {
 
 pub fn lfence() void {
     if (comptime is_x86_64) {
-        asm volatile ("lfence" ::: "memory");
+        asm volatile ("lfence" ::: .{ .memory = true });
     } else if (comptime is_aarch64) {
-        asm volatile ("isb" ::: "memory");
+        asm volatile ("isb" ::: .{ .memory = true });
     } else if (comptime is_riscv64) {
-        asm volatile ("fence rw, rw" ::: "memory");
+        asm volatile ("fence rw, rw" ::: .{ .memory = true });
     } else {
         _ = fence_anchor.fetchAdd(0, .seq_cst);
     }
@@ -306,11 +444,11 @@ pub fn lfence() void {
 
 pub fn mfence() void {
     if (comptime is_x86_64) {
-        asm volatile ("mfence" ::: "memory");
+        asm volatile ("mfence" ::: .{ .memory = true });
     } else if (comptime is_aarch64) {
-        asm volatile ("dmb ish" ::: "memory");
+        asm volatile ("dmb ish" ::: .{ .memory = true });
     } else if (comptime is_riscv64) {
-        asm volatile ("fence rw, rw" ::: "memory");
+        asm volatile ("fence rw, rw" ::: .{ .memory = true });
     } else {
         _ = fence_anchor.fetchAdd(0, .seq_cst);
     }
@@ -332,10 +470,9 @@ pub fn rdrand64() HwRngError!u64 {
             \\rdrand %[val]
             \\setc %[ok]
             : [val] "=r" (value),
-              [ok] "=qm" (ok),
+              [ok] "=r" (ok),
             :
-            : "cc"
-        );
+            : .{ .cc = true });
         if (ok == 0) return error.Unavailable;
         return value;
     } else {
@@ -368,10 +505,9 @@ pub fn rdseed64() HwRngError!u64 {
             \\rdseed %[val]
             \\setc %[ok]
             : [val] "=r" (value),
-              [ok] "=qm" (ok),
+              [ok] "=r" (ok),
             :
-            : "cc"
-        );
+            : .{ .cc = true });
         if (ok == 0) return error.Unavailable;
         return value;
     } else {
@@ -457,7 +593,7 @@ pub const HardwareRng = struct {
                 _ = self.fallback_count.fetchAdd(1, .monotonic);
             }
         }
-        return std.crypto.random.int(u64);
+        return osRandom64();
     }
 
     pub fn tryNext64Hardware(self: *const HardwareRng) HwRngError!u64 {
@@ -533,17 +669,101 @@ pub const CpuTimer = struct {
 pub fn estimateTscFreqHz(sample_ms: u64) FreqError!u64 {
     if (sample_ms == 0) return error.InvalidSampleDuration;
     const target_ns = std.math.mul(u64, sample_ms, std.time.ns_per_ms) catch return error.InvalidSampleDuration;
-    var timer = std.time.Timer.start() catch return error.MonotonicClockUnavailable;
+    const begin_ns = try monotonicNanosChecked();
     const start = readStampBegin();
-    while (timer.read() < target_ns) {
+    while ((try monotonicNanosChecked()) -| begin_ns < target_ns) {
         std.atomic.spinLoopHint();
     }
     const end = readStampEnd();
-    const elapsed_ns = timer.read();
+    const elapsed_ns = (try monotonicNanosChecked()) -| begin_ns;
     const ticks = try elapsedTicks(start, end);
     if (elapsed_ns == 0) return error.ZeroElapsed;
     const hz: u128 = (@as(u128, ticks) * @as(u128, std.time.ns_per_s)) / @as(u128, elapsed_ns);
     return std.math.cast(u64, hz) orelse error.FrequencyOutOfRange;
+}
+
+pub fn main() void {
+    const print = std.debug.print;
+    print("architecture: {s}\n", .{@tagName(builtin.cpu.arch)});
+    print("hardware counter: {}\n", .{has_hardware_counter});
+    print("rdtscp supported: {}\n", .{rdtscpSupported()});
+    print("rdrand supported: {}\n", .{rdrandSupported()});
+    print("rdseed supported: {}\n", .{rdseedSupported()});
+    print("counter globally synchronized: {}\n", .{counterIsGloballySynchronized()});
+    if (nominalCounterFreqHz()) |hz| {
+        print("nominal counter frequency: {d} Hz\n", .{hz});
+    } else {
+        print("nominal counter frequency: unknown\n", .{});
+    }
+    if (currentCpuId()) |cpu| {
+        print("current cpu: {d}\n", .{cpu});
+    } else {
+        print("current cpu: unknown\n", .{});
+    }
+    print("monotonic ns: {d}\n", .{monotonicNanos()});
+    print("wall clock us: {d}\n", .{wallClockTimestampUs()});
+
+    const timer = CpuTimer.begin();
+
+    var rng = HardwareRng.init();
+    print("rng source: {s}\n", .{@tagName(rng.source)});
+    print("random u64: {d}\n", .{rng.next64()});
+    var bytes: [16]u8 = undefined;
+    rng.nextBytes(&bytes);
+    print("random bytes: ", .{});
+    for (bytes) |byte| {
+        print("{x:0>2}", .{byte});
+    }
+    print("\n", .{});
+    if (rng.nextInRangeAtMost(1, 6)) |die| {
+        print("dice roll: {d}\n", .{die});
+    } else |err| {
+        print("dice roll failed: {s}\n", .{@errorName(err)});
+    }
+    print("rng fallbacks: {d}\n", .{rng.fallbacks()});
+
+    if (rdseedRetry(rdseed_retry_limit)) |seed| {
+        print("rdseed value: {d}\n", .{seed});
+    } else |err| {
+        print("rdseed: {s}\n", .{@errorName(err)});
+    }
+
+    var seq = TscSequencer.init();
+    if (seq.next()) |id| {
+        print("sequence id: 0x{x}\n", .{id});
+    } else |err| {
+        print("sequence failed: {s}\n", .{@errorName(err)});
+    }
+    if (seq.next()) |id| {
+        print("sequence id: 0x{x}\n", .{id});
+    } else |err| {
+        print("sequence failed: {s}\n", .{@errorName(err)});
+    }
+    if (seq.tscDelta()) |delta| {
+        print("sequencer tsc delta: {d}\n", .{delta});
+    } else |err| {
+        print("sequencer tsc delta failed: {s}\n", .{@errorName(err)});
+    }
+
+    const freq = estimateTscFreqHz(10);
+    if (freq) |hz| {
+        print("estimated counter frequency: {d} Hz\n", .{hz});
+    } else |err| {
+        print("frequency estimate failed: {s}\n", .{@errorName(err)});
+    }
+
+    if (timer.elapsedCycles()) |cycles| {
+        print("elapsed cycles: {d}\n", .{cycles});
+    } else |err| {
+        print("elapsed cycles failed: {s}\n", .{@errorName(err)});
+    }
+    if (freq) |hz| {
+        if (timer.elapsedNs(hz)) |ns| {
+            print("elapsed ns: {d}\n", .{ns});
+        } else |err| {
+            print("elapsed ns failed: {s}\n", .{@errorName(err)});
+        }
+    } else |_| {}
 }
 
 test "tsc reads" {
@@ -624,12 +844,12 @@ test "cpu timer" {
     const testing = std.testing;
     const timer = CpuTimer.begin();
     const first = timer.elapsedCycles() catch |err| {
-        try testing.expect(err == error.CpuMigrated);
+        try testing.expect(err == error.CpuMigrated or err == error.CounterWentBackward);
         return;
     };
-    std.Thread.sleep(std.time.ns_per_ms);
+    sleepNanos(std.time.ns_per_ms);
     const second = timer.elapsedCycles() catch |err| {
-        try testing.expect(err == error.CpuMigrated);
+        try testing.expect(err == error.CpuMigrated or err == error.CounterWentBackward);
         return;
     };
     try testing.expect(second >= first);
@@ -641,8 +861,17 @@ test "cpu timer" {
     if (timer.elapsedNsApprox(1.0)) |ns| {
         try testing.expect(ns >= second);
     } else |err| {
-        try testing.expect(err == error.CpuMigrated);
+        try testing.expect(err == error.CpuMigrated or err == error.CounterWentBackward);
     }
+}
+
+test "monotonic clock and wall clock" {
+    const testing = std.testing;
+    const a = try monotonicNanosChecked();
+    sleepNanos(std.time.ns_per_ms);
+    const b = try monotonicNanosChecked();
+    try testing.expect(b >= a);
+    try testing.expect(wallClockTimestampUs() > 0);
 }
 
 test "tsc frequency estimate" {
@@ -651,6 +880,6 @@ test "tsc frequency estimate" {
     if (estimateTscFreqHz(5)) |hz| {
         try testing.expect(hz > 0);
     } else |err| {
-        try testing.expect(err == error.CpuMigrated or err == error.MonotonicClockUnavailable);
+        try testing.expect(err == error.CpuMigrated or err == error.CounterWentBackward or err == error.MonotonicClockUnavailable or err == error.ZeroElapsed);
     }
 }
