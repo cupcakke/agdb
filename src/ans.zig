@@ -2,10 +2,14 @@ const std = @import("std");
 
 pub const ANS_SCALE_BITS: u32 = 12;
 pub const ANS_SCALE: u32 = 1 << ANS_SCALE_BITS;
+pub const ANS_SCALE_MASK: u64 = ANS_SCALE - 1;
 pub const ANS_LOWER_BOUND: u64 = 1 << 23;
 pub const ANS_UPPER_BOUND: u64 = ANS_LOWER_BOUND << 8;
-
 pub const MAX_SYMBOLS: usize = 256;
+pub const STATE_BYTES: usize = 4;
+pub const LENGTH_FIELD_SIZE: usize = 4;
+pub const TABLE_SIZE: usize = MAX_SYMBOLS * 2;
+pub const HEADER_SIZE: usize = LENGTH_FIELD_SIZE + TABLE_SIZE;
 
 pub const SymbolStats = struct {
     freq: [MAX_SYMBOLS]u32,
@@ -17,55 +21,64 @@ pub const SymbolStats = struct {
     }
 
     pub fn countFrequencies(self: *SymbolStats, data: []const u8) void {
-        var raw_freq = [_]u64{0} ** MAX_SYMBOLS;
-        for (data) |b| raw_freq[b] += 1;
+        var raw = [_]u64{0} ** MAX_SYMBOLS;
+        for (data) |b| raw[b] += 1;
 
-        var total: u64 = 0;
-        for (raw_freq) |f| total += f;
-
+        const total: u64 = data.len;
+        @memset(&self.freq, 0);
         if (total == 0) {
-            @memset(&self.freq, 0);
             @memset(&self.cum_freq, 0);
             self.symbol_count = 0;
             return;
         }
 
+        var sum: u32 = 0;
         var active: u32 = 0;
-        for (raw_freq, 0..) |f, i| {
-            if (f > 0) {
-                self.freq[i] = @max(1, @as(u32, @intCast((@as(u128, f) * ANS_SCALE) / total)));
-                active += 1;
-            } else {
-                self.freq[i] = 0;
-            }
+        for (0..MAX_SYMBOLS) |i| {
+            const r = raw[i];
+            if (r == 0) continue;
+            const scaled: u32 = @intCast((@as(u128, r) * ANS_SCALE) / total);
+            const value: u32 = @max(scaled, 1);
+            self.freq[i] = value;
+            sum += value;
+            active += 1;
         }
         self.symbol_count = active;
 
-        var sum: u32 = 0;
-        for (&self.freq) |*f| sum += f.*;
+        while (sum < ANS_SCALE) {
+            var best: usize = 0;
+            var found = false;
+            for (0..MAX_SYMBOLS) |i| {
+                if (raw[i] == 0) continue;
+                if (!found) {
+                    best = i;
+                    found = true;
+                    continue;
+                }
+                const lhs = @as(u128, raw[i]) * self.freq[best];
+                const rhs = @as(u128, raw[best]) * self.freq[i];
+                if (lhs > rhs) best = i;
+            }
+            self.freq[best] += 1;
+            sum += 1;
+        }
 
-        if (sum > ANS_SCALE) {
-            var excess: u32 = sum - ANS_SCALE;
-            var i: usize = MAX_SYMBOLS;
-            while (i > 0 and excess > 0) {
-                i -= 1;
-                if (self.freq[i] > 1) {
-                    const reduce = @min(self.freq[i] - 1, excess);
-                    self.freq[i] -= reduce;
-                    excess -= reduce;
+        while (sum > ANS_SCALE) {
+            var best: usize = 0;
+            var found = false;
+            for (0..MAX_SYMBOLS) |i| {
+                if (self.freq[i] <= 1) continue;
+                if (!found) {
+                    best = i;
+                    found = true;
+                    continue;
                 }
+                const lhs = @as(u128, raw[i]) * (self.freq[best] - 1);
+                const rhs = @as(u128, raw[best]) * (self.freq[i] - 1);
+                if (lhs < rhs) best = i;
             }
-        } else if (sum < ANS_SCALE) {
-            const deficit: u32 = ANS_SCALE - sum;
-            var max_idx: usize = 0;
-            var max_freq: u32 = 0;
-            for (self.freq, 0..) |f, idx| {
-                if (f > max_freq) {
-                    max_freq = f;
-                    max_idx = idx;
-                }
-            }
-            self.freq[max_idx] += deficit;
+            self.freq[best] -= 1;
+            sum -= 1;
         }
 
         self.buildCumFreq();
@@ -78,114 +91,169 @@ pub const SymbolStats = struct {
         }
     }
 
-    pub fn serialize(self: *const SymbolStats, out: []u8) usize {
-        var pos: usize = 0;
-        for (self.freq) |f| {
-            if (pos + 2 > out.len) break;
-            std.mem.writeInt(u16, out[pos..][0..2], @intCast(@min(f, 0xFFFF)), .little);
-            pos += 2;
+    pub fn validate(self: *const SymbolStats) bool {
+        var sum: u32 = 0;
+        for (0..MAX_SYMBOLS) |i| {
+            const f = self.freq[i];
+            if (f > ANS_SCALE) return false;
+            if (self.cum_freq[i] != sum) return false;
+            sum += f;
+            if (sum > ANS_SCALE) return false;
         }
-        return pos;
+        return sum == ANS_SCALE and self.cum_freq[MAX_SYMBOLS] == sum;
     }
 
-    pub fn deserialize(self: *SymbolStats, data: []const u8) bool {
-        if (data.len < MAX_SYMBOLS * 2) return false;
+    pub fn serialize(self: *const SymbolStats, out: []u8) !usize {
+        if (out.len < TABLE_SIZE) return error.BufferTooSmall;
         for (0..MAX_SYMBOLS) |i| {
-            self.freq[i] = std.mem.readInt(u16, data[i * 2 ..][0..2], .little);
+            const v = std.math.cast(u16, self.freq[i]) orelse return error.InvalidFrequencyTable;
+            std.mem.writeInt(u16, out[i * 2 ..][0..2], v, .little);
         }
+        return TABLE_SIZE;
+    }
+
+    pub fn deserialize(self: *SymbolStats, data: []const u8) !void {
+        if (data.len < TABLE_SIZE) return error.InvalidCompressedData;
+
+        var parsed: [MAX_SYMBOLS]u32 = undefined;
+        var sum: u32 = 0;
+        var active: u32 = 0;
+        for (0..MAX_SYMBOLS) |i| {
+            const f: u32 = std.mem.readInt(u16, data[i * 2 ..][0..2], .little);
+            if (f > ANS_SCALE) return error.InvalidFrequencyTable;
+            sum += f;
+            if (f > 0) active += 1;
+            parsed[i] = f;
+        }
+        if (sum != ANS_SCALE) return error.InvalidFrequencyTable;
+
+        self.freq = parsed;
+        self.symbol_count = active;
         self.buildCumFreq();
-        return true;
     }
 };
 
-pub const AliasTable = struct {
-    prob: [ANS_SCALE]u32,
-    alias: [ANS_SCALE]u8,
-    sym_start: [MAX_SYMBOLS]u32,
+pub const SymbolLookup = struct {
+    table: [ANS_SCALE]u8,
 
-    pub fn build(self: *AliasTable, stats: *const SymbolStats) void {
-        for (0..ANS_SCALE) |slot| {
-            self.prob[slot] = ANS_SCALE;
-            self.alias[slot] = 0;
-        }
-
+    pub fn build(self: *SymbolLookup, stats: *const SymbolStats) !void {
+        if (!stats.validate()) return error.InvalidFrequencyTable;
         for (0..MAX_SYMBOLS) |i| {
-            const s: u8 = @intCast(i);
             const f = stats.freq[i];
             if (f == 0) continue;
-            const slots = f;
-            var j: u32 = 0;
-            while (j < slots) : (j += 1) {
-                const slot = stats.cum_freq[i] + j;
-                if (slot < ANS_SCALE) {
-                    self.prob[slot] = ANS_SCALE;
-                    self.alias[slot] = s;
-                }
-            }
-        }
-
-        for (0..MAX_SYMBOLS) |i| {
-            self.sym_start[i] = stats.cum_freq[i];
+            const s: u8 = @intCast(i);
+            const start: usize = stats.cum_freq[i];
+            const end: usize = start + @as(usize, f);
+            @memset(self.table[start..end], s);
         }
     }
 
-    pub fn decode(self: *const AliasTable, state: u64, stats: *const SymbolStats) struct { sym: u8, new_state: u64 } {
-        const slot: u32 = @intCast(state % @as(u64, ANS_SCALE));
-        const s = self.findSymbol(slot, stats);
-        const freq = stats.freq[s];
-        const cum = stats.cum_freq[s];
-        const new_state = (state / @as(u64, ANS_SCALE)) * @as(u64, freq) + @as(u64, slot) - @as(u64, cum);
-        return .{ .sym = s, .new_state = new_state };
+    pub fn lookup(self: *const SymbolLookup, slot: u32) u8 {
+        return self.table[slot];
+    }
+};
+
+const ByteList = struct {
+    items: []u8,
+    len: usize,
+    allocator: std.mem.Allocator,
+
+    fn init(allocator: std.mem.Allocator) ByteList {
+        return .{
+            .items = &.{},
+            .len = 0,
+            .allocator = allocator,
+        };
     }
 
-    fn findSymbol(self: *const AliasTable, slot: u64, stats: *const SymbolStats) u8 {
-        _ = stats;
-        return self.alias[@intCast(slot)];
+    fn deinit(self: *ByteList) void {
+        self.allocator.free(self.items);
+        self.items = &.{};
+        self.len = 0;
+    }
+
+    fn ensureUnused(self: *ByteList, extra: usize) !void {
+        const needed = std.math.add(usize, self.len, extra) catch return error.OutOfMemory;
+        if (needed <= self.items.len) return;
+        var new_cap: usize = if (self.items.len == 0) 64 else self.items.len;
+        while (new_cap < needed) {
+            new_cap = std.math.mul(usize, new_cap, 2) catch needed;
+        }
+        self.items = try self.allocator.realloc(self.items, new_cap);
+    }
+
+    fn pushAssumeCapacity(self: *ByteList, byte: u8) void {
+        self.items[self.len] = byte;
+        self.len += 1;
     }
 };
 
 pub const RansEncoder = struct {
     state: u64,
-    output: std.ArrayList(u8),
+    bytes: ByteList,
+    allocator: std.mem.Allocator,
     stats: *const SymbolStats,
 
     pub fn init(allocator: std.mem.Allocator, stats: *const SymbolStats) RansEncoder {
         return .{
             .state = ANS_LOWER_BOUND,
-            .output = std.ArrayList(u8).init(allocator),
+            .bytes = ByteList.init(allocator),
+            .allocator = allocator,
             .stats = stats,
         };
     }
 
     pub fn deinit(self: *RansEncoder) void {
-        self.output.deinit();
+        self.bytes.deinit();
     }
 
     pub fn encode(self: *RansEncoder, sym: u8) !void {
         const freq = self.stats.freq[sym];
         const cum = self.stats.cum_freq[sym];
-
         if (freq == 0) return error.SymbolNotInAlphabet;
+        if (freq > ANS_SCALE) return error.InvalidFrequencyTable;
 
-        const upper = (ANS_UPPER_BOUND / @as(u64, ANS_SCALE)) * @as(u64, freq);
-        while (self.state >= upper) {
-            const byte: u8 = @intCast(self.state & 0xFF);
-            try self.output.append(byte);
-            self.state >>= 8;
+        try self.bytes.ensureUnused(4);
+
+        const f: u64 = freq;
+        const upper: u64 = (ANS_UPPER_BOUND >> ANS_SCALE_BITS) * f;
+        var state = self.state;
+        while (state >= upper) {
+            self.bytes.pushAssumeCapacity(@intCast(state & 0xFF));
+            state >>= 8;
         }
+        self.state = (state / f) * ANS_SCALE + cum + (state % f);
+    }
 
-        self.state = (self.state / @as(u64, freq)) * @as(u64, ANS_SCALE) + @as(u64, cum) + (self.state % @as(u64, freq));
+    pub fn encodedSize(self: *const RansEncoder) !usize {
+        return std.math.add(usize, self.bytes.len, STATE_BYTES) catch return error.OutputTooLarge;
+    }
+
+    pub fn writeTo(self: *const RansEncoder, dest: []u8) !void {
+        const total = try self.encodedSize();
+        if (dest.len != total) return error.BufferSizeMismatch;
+        if (self.state < ANS_LOWER_BOUND or self.state >= ANS_UPPER_BOUND) return error.CorruptStream;
+
+        const state32: u32 = @intCast(self.state);
+        std.mem.writeInt(u32, dest[0..STATE_BYTES], state32, .big);
+
+        const n = self.bytes.len;
+        for (0..n) |k| {
+            dest[STATE_BYTES + k] = self.bytes.items[n - 1 - k];
+        }
+    }
+
+    pub fn reset(self: *RansEncoder) void {
+        self.bytes.len = 0;
+        self.state = ANS_LOWER_BOUND;
     }
 
     pub fn flush(self: *RansEncoder) ![]u8 {
-        var state = self.state;
-        var i: usize = 0;
-        while (i < 8) : (i += 1) {
-            try self.output.append(@intCast(state & 0xFF));
-            state >>= 8;
-        }
-        const result = try self.output.toOwnedSlice();
-        std.mem.reverse(u8, result);
+        const total = try self.encodedSize();
+        const result = try self.allocator.alloc(u8, total);
+        errdefer self.allocator.free(result);
+        try self.writeTo(result);
+        self.reset();
         return result;
     }
 };
@@ -195,61 +263,67 @@ pub const RansDecoder = struct {
     input: []const u8,
     pos: usize,
     stats: *const SymbolStats,
-    table: AliasTable,
+    table: SymbolLookup,
 
-    pub fn init(encoded: []const u8, stats: *const SymbolStats) RansDecoder {
+    pub fn init(encoded: []const u8, stats: *const SymbolStats) !RansDecoder {
+        if (encoded.len < STATE_BYTES) return error.InvalidCompressedData;
+
         var self = RansDecoder{
             .state = 0,
             .input = encoded,
-            .pos = 0,
+            .pos = STATE_BYTES,
             .stats = stats,
             .table = undefined,
         };
-        self.table.build(stats);
+        try self.table.build(stats);
 
-        var state: u64 = 0;
-        var i: usize = 0;
-        while (i < 8 and i < encoded.len) : (i += 1) {
-            state = (state << 8) | encoded[i];
-        }
+        const state: u64 = std.mem.readInt(u32, encoded[0..STATE_BYTES], .big);
+        if (state < ANS_LOWER_BOUND or state >= ANS_UPPER_BOUND) return error.InvalidInitialState;
         self.state = state;
-        self.pos = @min(8, encoded.len);
         return self;
     }
 
-    pub fn decode(self: *RansDecoder) ?u8 {
-        if (self.state < ANS_LOWER_BOUND) return null;
+    pub fn decode(self: *RansDecoder) !u8 {
+        if (self.state < ANS_LOWER_BOUND or self.state >= ANS_UPPER_BOUND) return error.CorruptStream;
 
-        const slot: u32 = @intCast(self.state % @as(u64, ANS_SCALE));
-        const sym = self.table.findSymbol(slot, self.stats);
-        const freq = self.stats.freq[sym];
-        const cum = self.stats.cum_freq[sym];
+        const slot: u32 = @intCast(self.state & ANS_SCALE_MASK);
+        const sym = self.table.lookup(slot);
+        const freq: u64 = self.stats.freq[sym];
+        const cum: u64 = self.stats.cum_freq[sym];
+        if (freq == 0 or slot < cum) return error.CorruptStream;
 
-        self.state = @as(u64, freq) * (self.state / @as(u64, ANS_SCALE)) + @as(u64, slot) - @as(u64, cum);
-
-        while (self.state < ANS_LOWER_BOUND and self.pos < self.input.len) {
-            self.state = (self.state << 8) | self.input[self.pos];
+        var state: u64 = freq * (self.state >> ANS_SCALE_BITS) + slot - cum;
+        while (state < ANS_LOWER_BOUND) {
+            if (self.pos >= self.input.len) return error.TruncatedInput;
+            state = (state << 8) | self.input[self.pos];
             self.pos += 1;
         }
 
+        self.state = state;
         return sym;
+    }
+
+    pub fn isFinished(self: *const RansDecoder) bool {
+        return self.state == ANS_LOWER_BOUND and self.pos == self.input.len;
     }
 };
 
 pub fn compress(allocator: std.mem.Allocator, data: []const u8) ![]u8 {
-    if (data.len == 0) {
-        const out = try allocator.alloc(u8, 4);
-        std.mem.writeInt(u32, out[0..4], 0, .little);
-        return out;
+    const length = std.math.cast(u32, data.len) orelse return error.InputTooLarge;
+
+    if (length == 0) {
+        const empty_out = try allocator.alloc(u8, LENGTH_FIELD_SIZE);
+        std.mem.writeInt(u32, empty_out[0..LENGTH_FIELD_SIZE], 0, .little);
+        return empty_out;
     }
 
     var stats = SymbolStats.init();
     stats.countFrequencies(data);
+    if (!stats.validate()) return error.InvalidFrequencyTable;
 
-    const header_size: usize = 4 + MAX_SYMBOLS * 2;
-    var header_buf: [4 + MAX_SYMBOLS * 2]u8 = undefined;
-    std.mem.writeInt(u32, header_buf[0..4], @intCast(data.len), .little);
-    _ = stats.serialize(header_buf[4..]);
+    var header_buf: [HEADER_SIZE]u8 = undefined;
+    std.mem.writeInt(u32, header_buf[0..LENGTH_FIELD_SIZE], length, .little);
+    _ = try stats.serialize(header_buf[LENGTH_FIELD_SIZE..]);
 
     var encoder = RansEncoder.init(allocator, &stats);
     defer encoder.deinit();
@@ -260,67 +334,71 @@ pub fn compress(allocator: std.mem.Allocator, data: []const u8) ![]u8 {
         try encoder.encode(data[i]);
     }
 
-    const encoded = try encoder.flush();
-    defer allocator.free(encoded);
-
-    const total = header_size + encoded.len;
+    const payload = try encoder.encodedSize();
+    const total = std.math.add(usize, HEADER_SIZE, payload) catch return error.OutputTooLarge;
     const out = try allocator.alloc(u8, total);
-    @memcpy(out[0..header_size], &header_buf);
-    @memcpy(out[header_size..], encoded);
+    errdefer allocator.free(out);
+
+    @memcpy(out[0..HEADER_SIZE], &header_buf);
+    try encoder.writeTo(out[HEADER_SIZE..]);
     return out;
 }
 
 pub fn decompress(allocator: std.mem.Allocator, data: []const u8) ![]u8 {
-    const header_size: usize = 4 + MAX_SYMBOLS * 2;
-    if (data.len < 4) return error.InvalidCompressedData;
+    if (data.len < LENGTH_FIELD_SIZE) return error.InvalidCompressedData;
 
-    const orig_len = std.mem.readInt(u32, data[0..4], .little);
-    if (orig_len == 0) return try allocator.alloc(u8, 0);
+    const orig_len = std.mem.readInt(u32, data[0..LENGTH_FIELD_SIZE], .little);
+    if (orig_len == 0) {
+        if (data.len != LENGTH_FIELD_SIZE) return error.InvalidCompressedData;
+        return try allocator.alloc(u8, 0);
+    }
 
-    if (data.len < header_size) return error.InvalidCompressedData;
+    const out_len = std.math.cast(usize, orig_len) orelse return error.OutputTooLarge;
+    if (data.len < HEADER_SIZE) return error.InvalidCompressedData;
 
     var stats = SymbolStats.init();
-    if (!stats.deserialize(data[4..header_size])) return error.InvalidFrequencyTable;
+    try stats.deserialize(data[LENGTH_FIELD_SIZE..HEADER_SIZE]);
 
-    var valid_symbols: u32 = 0;
-    for (stats.freq) |f| {
-        if (f > 0) valid_symbols += 1;
-    }
-    if (valid_symbols == 0) return error.InvalidFrequencyTable;
+    const encoded = data[HEADER_SIZE..];
+    var decoder = try RansDecoder.init(encoded, &stats);
 
-    const encoded = data[header_size..];
-    if (encoded.len < 8) return error.InvalidCompressedData;
-    var decoder = RansDecoder.init(encoded, &stats);
-
-    const out = try allocator.alloc(u8, orig_len);
+    const out = try allocator.alloc(u8, out_len);
     errdefer allocator.free(out);
 
     var j: usize = 0;
-    while (j < orig_len) : (j += 1) {
-        out[j] = decoder.decode() orelse return error.DecompressionFailed;
+    while (j < out_len) : (j += 1) {
+        out[j] = try decoder.decode();
     }
 
+    if (!decoder.isFinished()) return error.CorruptStream;
     return out;
+}
+
+fn slicesOverlap(a: []const u8, b: []const u8) bool {
+    if (a.len == 0 or b.len == 0) return false;
+    const a_start = @intFromPtr(a.ptr);
+    const b_start = @intFromPtr(b.ptr);
+    return a_start < b_start + b.len and b_start < a_start + a.len;
 }
 
 pub const WCBuffer = struct {
     buf: []align(64) u8,
     pos: usize,
-    capacity: usize,
     allocator: std.mem.Allocator,
     flush_target: ?[]u8,
     flush_offset: usize,
 
     const Self = @This();
 
-    pub fn init(allocator: std.mem.Allocator, capacity: usize) !WCBuffer {
-        const aligned_cap = std.mem.alignForward(usize, @max(capacity, 1), 64);
-        const buf = try allocator.alignedAlloc(u8, 64, aligned_cap);
-        @memset(buf, 0);
+    pub fn init(allocator: std.mem.Allocator, requested_capacity: usize) !WCBuffer {
+        const requested = @max(requested_capacity, 1);
+        const padded = std.math.add(usize, requested, 63) catch return error.CapacityOverflow;
+        const aligned_cap = padded & ~@as(usize, 63);
+        const buf = try allocator.alignedAlloc(u8, .@"64", aligned_cap);
+
         return Self{
             .buf = buf,
             .pos = 0,
-            .capacity = aligned_cap,
             .allocator = allocator,
             .flush_target = null,
             .flush_offset = 0,
@@ -329,85 +407,64 @@ pub const WCBuffer = struct {
 
     pub fn deinit(self: *Self) void {
         self.allocator.free(self.buf);
-        self.buf = &[_]u8{};
+        self.buf = self.buf[0..0];
+        self.pos = 0;
+        self.flush_target = null;
+        self.flush_offset = 0;
     }
 
-    pub fn write(self: *Self, data: []const u8) usize {
+    pub fn capacity(self: *const Self) usize {
+        return self.buf.len;
+    }
+
+    pub fn setTarget(self: *Self, target: []u8) !void {
+        if (slicesOverlap(target, self.buf)) return error.OverlappingMemory;
+        self.flush_target = target;
+        self.flush_offset = 0;
+    }
+
+    pub fn clearTarget(self: *Self) void {
+        self.flush_target = null;
+        self.flush_offset = 0;
+    }
+
+    pub fn write(self: *Self, data: []const u8) !usize {
+        if (self.buf.len == 0) return error.BufferClosed;
+        if (slicesOverlap(data, self.buf)) return error.OverlappingMemory;
+
         var written: usize = 0;
         while (written < data.len) {
-            const available = self.capacity - self.pos;
-            if (available == 0) {
-                self.flushToTarget();
-                continue;
+            if (self.pos == self.buf.len) {
+                self.flushToTarget() catch |err| {
+                    if (written == 0) return err;
+                    return written;
+                };
             }
-            const n = @min(data.len - written, available);
-            @memcpy(self.buf[self.pos .. self.pos + n], data[written .. written + n]);
+            const n = @min(data.len - written, self.buf.len - self.pos);
+            @memcpy(self.buf[self.pos..][0..n], data[written..][0..n]);
             self.pos += n;
             written += n;
-            if (self.pos >= self.capacity) {
-                self.flushToTarget();
-            }
         }
         return written;
     }
 
-    pub fn flushToTarget(self: *Self) void {
-        if (self.flush_target) |target| {
-            if (self.flush_offset < target.len) {
-                const remaining = target.len - self.flush_offset;
-                const n = @min(self.pos, remaining);
-                if (n > 0) {
-                    @memcpy(target[self.flush_offset .. self.flush_offset + n], self.buf[0..n]);
-                    self.flush_offset += n;
-                }
-            }
+    pub fn flushToTarget(self: *Self) !void {
+        if (self.pos == 0) return;
+        const target = self.flush_target orelse return error.NoFlushTarget;
+        if (slicesOverlap(target, self.buf)) return error.OverlappingMemory;
+        if (self.flush_offset > target.len or target.len - self.flush_offset < self.pos) {
+            return error.FlushTargetFull;
         }
-        @memset(self.buf[0..self.pos], 0);
+        @memcpy(target[self.flush_offset..][0..self.pos], self.buf[0..self.pos]);
+        self.flush_offset += self.pos;
         self.pos = 0;
     }
 
-    pub fn bytesBuffered(self: *const WCBuffer) usize {
+    pub fn bytesBuffered(self: *const Self) usize {
         return self.pos;
     }
+
+    pub fn bytesFlushed(self: *const Self) usize {
+        return self.flush_offset;
+    }
 };
-
-test "symbol stats" {
-    const testing = std.testing;
-    const data = "aaabbc";
-    var stats = SymbolStats.init();
-    stats.countFrequencies(data);
-    try testing.expect(stats.freq['a'] > stats.freq['b']);
-    try testing.expect(stats.freq['b'] > stats.freq['c']);
-    var sum: u32 = 0;
-    for (stats.freq) |f| sum += f;
-    try testing.expectEqual(ANS_SCALE, sum);
-}
-
-test "compress round-trip" {
-    const testing = std.testing;
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
-    defer _ = gpa.deinit();
-    const alloc = gpa.allocator();
-
-    const original = "hello world, this is a test of the rANS compressor!";
-    const compressed = try compress(alloc, original);
-    defer alloc.free(compressed);
-
-    const decompressed = try decompress(alloc, compressed);
-    defer alloc.free(decompressed);
-
-    try testing.expectEqualStrings(original, decompressed);
-}
-
-test "wc buffer basic" {
-    const testing = std.testing;
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
-    defer _ = gpa.deinit();
-    const alloc = gpa.allocator();
-
-    var wb = try WCBuffer.init(alloc, 256);
-    defer wb.deinit();
-    const n = wb.write("hello");
-    try testing.expectEqual(@as(usize, 5), n);
-    try testing.expectEqual(@as(usize, 5), wb.bytesBuffered());
-}
